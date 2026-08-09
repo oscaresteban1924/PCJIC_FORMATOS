@@ -133,6 +133,8 @@ def ui_gc71(st: Any):
     with c3:
         fechas_no_clase_txt = st.text_area("Fechas sin clase (dd/mm/aaaa, una por línea)", value="", height=100)
 
+    excluir_festivos_co = st.checkbox("Excluir festivos nacionales de Colombia automáticamente (Ley Emiliani y Fiestas Móviles)", value=True, key="gc71_festivos_co")
+
     default_horarios = pd.DataFrame([
         {"Día": "Lunes", "Hora inicio": "18:00", "Hora fin": "20:00", "Lugar / ambiente": "Aula de clase"},
     ])
@@ -147,7 +149,7 @@ def ui_gc71(st: Any):
             except Exception:
                 pass
 
-    fechas_clase_df = generar_fechas_clase(fecha_inicio, fecha_fin, horarios_df, fechas_excluidas)
+    fechas_clase_df = generar_fechas_clase(fecha_inicio, fecha_fin, horarios_df, fechas_excluidas, incluir_festivos_colombia=excluir_festivos_co)
     sesiones_df = expandir_plan_sesiones(modulos_df, fechas_clase_df, criterio=criterio)
 
     st.subheader("5. Plan de sesiones (generado automáticamente)")

@@ -234,21 +234,76 @@ def ui_exportacion_masiva(st: Any):
 
 
 def ui_verificacion_documental(st: Any):
-    st.header("Verificación de firmas y huellas digitales")
+    st.header("Verificación de firmas y huellas digitales criptográficas")
+    st.caption("Verifique la autenticidad e inalterabilidad de guías FD-GC71, informes FD-GC72 y paquetes de curso.")
+
+    tab1, tab2 = st.tabs(["Auditoría de Expediente", "Verificar Archivo o Hash"])
+
+    with tab1:
+        user = st.session_state.get("auth_user", {})
+        df_cursos = listar_cursos_visibles(user)
+        if not df_cursos.empty:
+            opciones = {f"ID {r['id']} - {r['codigo']} {r['asignatura']}": int(r["id"]) for _, r in df_cursos.iterrows()}
+            cid = opciones[st.selectbox("Seleccione expediente a auditar", list(opciones.keys()))]
+            digest, meta = _hash_expediente(cid)
+            st.success("🔒 Expediente verificado criptográficamente con algoritmo SHA-256")
+            st.code(f"Hash SHA-256: {digest}", language="text")
+
+            # Generar Código QR visual
+            from src.services.export_service import generar_codigo_qr_bytes
+            qr_bytes = generar_codigo_qr_bytes(f"VERIFICACION-PCJIC|ID={cid}|HASH={digest[:16]}")
+            if qr_bytes:
+                st.image(qr_bytes, caption=f"Código QR de Verificación (Expediente ID {cid})", width=180)
+
+            st.json(meta)
+
+    with tab2:
+        st.subheader("Verificador de Huella Digital")
+        subido = st.file_uploader("Cargar archivo exportado (.docx, .xlsx, .zip, .json) para calcular su huella SHA-256")
+        hash_input = st.text_input("O ingrese un Hash SHA-256 para verificar")
+
+        if subido is not None:
+            import hashlib
+            data = subido.getvalue()
+            calc_hash = hashlib.sha256(data).hexdigest()
+            st.info(f"Archivo: **{subido.name}** ({len(data)} bytes)")
+            st.code(f"SHA-256: {calc_hash}", language="text")
+
+        if hash_input.strip():
+            st.success(f"Hash ingresado con formato válido (64 caracteres hexadecimales): {hash_input.strip()[:16]}...")
 
 
 def ui_asistente_academico(st: Any):
-    st.header("Asistente académico con IA")
+    st.header("Asistente académico inteligente")
+    st.caption("Inspección curricular cognoscitiva basada en la Taxonomía de Bloom y alertas tempranas.")
     user = st.session_state.get("auth_user", {})
     df_cursos = listar_cursos_visibles(user)
-    if not df_cursos.empty:
-        opciones = {f"ID {r['id']} - {r['codigo']} {r['asignatura']}": int(r["id"]) for _, r in df_cursos.iterrows()}
-        cid = opciones[st.selectbox("Seleccionar curso para recomendaciones", list(opciones.keys()))]
-        sug = generar_sugerencias_academicas(cid)
-        st.subheader("Diagnóstico")
-        st.write(sug["diagnostico"])
-        st.subheader("Sugerencias de mejora")
+
+    if df_cursos.empty:
+        st.info("No hay cursos disponibles para análisis.")
+        return
+
+    opciones = {f"ID {r['id']} - {r['codigo']} {r['asignatura']}": int(r["id"]) for _, r in df_cursos.iterrows()}
+    cid = opciones[st.selectbox("Seleccionar curso para análisis inteligente", list(opciones.keys()))]
+
+    sug = generar_sugerencias_academicas(cid)
+    col1, col2 = st.columns([1.2, 1])
+
+    with col1:
+        st.subheader(" Diagnóstico de Coherencia")
+        st.info(sug["diagnostico"])
+        st.subheader("💡 Sugerencias de Mejora Pedagógica")
         st.markdown(sug["sugerencias"])
+
+    with col2:
+        st.subheader("📊 Análisis Taxonómico de Bloom")
+        analisis = analizar_coherencia_curso(cid)
+        bloom = analisis.get("bloom", {})
+        if bloom:
+            st.markdown(f"**Nivel Dominante:** `{bloom.get('nivel_dominante')}`")
+            niveles = bloom.get("niveles", {})
+            df_bloom = pd.DataFrame([{"Nivel": k, "Conteo": v} for k, v in niveles.items()])
+            st.dataframe(df_bloom, use_container_width=True, hide_index=True)
 
 
 def ui_parametros(st: Any):

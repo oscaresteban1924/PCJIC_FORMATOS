@@ -19,6 +19,26 @@ from src.services.docx_service import crear_gc71_docx
 from src.services.excel_service import crear_plantilla_evaluacion_xlsx
 
 
+def generar_codigo_qr_bytes(texto: str) -> bytes:
+    """Genera una imagen PNG del código QR de verificación."""
+    try:
+        import qrcode
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_M,
+            box_size=4,
+            border=2,
+        )
+        qr.add_data(texto)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception:
+        return b""
+
+
 def nombre_archivo_seguro(nombre: str, fecha: date | str, prefijo: str) -> str:
     base = re.sub(r"[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9]+", "_", str(nombre).strip()).strip("_") or "docente"
     f = fecha.strftime("%Y%m%d") if hasattr(fecha, "strftime") else re.sub(r"\D+", "", str(fecha))
@@ -55,6 +75,12 @@ def crear_paquete_curso_zip(
         "generado_en": ahora_iso(),
         "curso_id": curso_id,
     }
+
+    # Hash de integridad
+    raw_json = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    digest = hashlib.sha256(raw_json.encode("utf-8")).hexdigest()
+    qr_bytes = generar_codigo_qr_bytes(f"VERIFICACION-FDGC|ID={curso_id}|HASH={digest[:16]}")
+
     buf = io.BytesIO()
     nombre_base = nombre_archivo_seguro(datos.get("asignatura", "curso"), date.today(), "FDGC_Paquete")
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
@@ -63,8 +89,10 @@ def crear_paquete_curso_zip(
         z.writestr(f"{nombre_base}/03_Calendario_Clases.ics", ics)
         z.writestr(f"{nombre_base}/04_Sesiones.csv", ses_csv)
         z.writestr(f"{nombre_base}/05_Evaluaciones.csv", ev_csv)
-        z.writestr(f"{nombre_base}/06_Payload_Reutilizable.json", json.dumps(payload, ensure_ascii=False, indent=2, default=str).encode("utf-8"))
-        z.writestr(f"{nombre_base}/LEAME.txt", "Paquete generado desde Gestor FD-GC71/FD-GC72 Enterprise.\n")
+        z.writestr(f"{nombre_base}/06_Payload_Reutilizable.json", raw_json.encode("utf-8"))
+        if qr_bytes:
+            z.writestr(f"{nombre_base}/07_Verificacion_QR.png", qr_bytes)
+        z.writestr(f"{nombre_base}/LEAME.txt", f"Paquete generado desde Gestor FD-GC71/FD-GC72 Enterprise.\nHash SHA256: {digest}\n")
     return buf.getvalue()
 
 

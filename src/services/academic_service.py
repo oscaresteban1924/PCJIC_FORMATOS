@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import re
 from datetime import date, datetime, time, timedelta
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 import pandas as pd
 
@@ -26,6 +26,63 @@ from src.repositories.subject_repository import limpiar_numero
 from src.services.calendar_service import parse_time_value
 
 
+def calcular_pascua(year: int) -> date:
+    """Algoritmo de Meeus/Jones/Butcher para calcular Domingo de Pascua."""
+    a = year % 19
+    b = year // 100
+    c = year % 100
+    d = b // 4
+    e = b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i = c // 4
+    k = c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    month = (h + l - 7 * m + 114) // 31
+    day = ((h + l - 7 * m + 114) % 31) + 1
+    return date(year, month, day)
+
+
+def mover_a_lunes_emiliani(d: date) -> date:
+    """Aplica la regla de la Ley Emiliani de Colombia (traslada al siguiente lunes si no es lunes)."""
+    if d.weekday() == 0:  # Lunes
+        return d
+    return d + timedelta(days=(7 - d.weekday()))
+
+
+def obtener_festivos_colombia(years: Iterable[int]) -> Set[date]:
+    """Calcula festivos oficiales de Colombia para un conjunto de años."""
+    festivos: Set[date] = set()
+    for y in years:
+        # Festivos fijos de fecha
+        festivos.add(date(y, 1, 1))    # Año nuevo
+        festivos.add(date(y, 5, 1))    # Día del trabajo
+        festivos.add(date(y, 7, 20))   # Independencia
+        festivos.add(date(y, 8, 7))    # Batalla de Boyacá
+        festivos.add(date(y, 12, 8))   # Inmaculada Concepción
+        festivos.add(date(y, 12, 25))  # Navidad
+
+        # Festivos sujetos a Ley Emiliani (se traslada a lunes)
+        festivos.add(mover_a_lunes_emiliani(date(y, 1, 6)))    # Reyes magos
+        festivos.add(mover_a_lunes_emiliani(date(y, 3, 19)))   # San José
+        festivos.add(mover_a_lunes_emiliani(date(y, 6, 29)))   # San Pedro y San Pablo
+        festivos.add(mover_a_lunes_emiliani(date(y, 8, 15)))   # Asunción de la Virgen
+        festivos.add(mover_a_lunes_emiliani(date(y, 10, 12)))  # Día de la Raza
+        festivos.add(mover_a_lunes_emiliani(date(y, 11, 1)))   # Todos los Santos
+        festivos.add(mover_a_lunes_emiliani(date(y, 11, 11)))  # Independencia de Cartagena
+
+        # Festivos móviles basados en Pascua
+        pascua = calcular_pascua(y)
+        festivos.add(pascua - timedelta(days=3))  # Jueves Santo
+        festivos.add(pascua - timedelta(days=2))  # Viernes Santo
+        festivos.add(mover_a_lunes_emiliani(pascua + timedelta(days=39)))  # Ascensión del Señor
+        festivos.add(mover_a_lunes_emiliani(pascua + timedelta(days=60)))  # Corpus Christi
+        festivos.add(mover_a_lunes_emiliani(pascua + timedelta(days=67)))  # Sagrado Corazón
+    return festivos
+
+
 def limpiar_df(df: pd.DataFrame, columnas: List[str]) -> pd.DataFrame:
     if df is None:
         return pd.DataFrame(columns=columnas)
@@ -44,16 +101,26 @@ def horas_entre(inicio: time, fin: time) -> float:
     return round((df - di).total_seconds() / 3600, 2)
 
 
-def generar_fechas_clase(inicio: date, fin: date, horarios_df: pd.DataFrame, fechas_excluidas: Iterable[date] | None = None) -> pd.DataFrame:
+def generar_fechas_clase(
+    inicio: date,
+    fin: date,
+    horarios_df: pd.DataFrame,
+    fechas_excluidas: Iterable[date] | None = None,
+    incluir_festivos_colombia: bool = False,
+) -> pd.DataFrame:
     horarios = limpiar_df(horarios_df, COLUMNAS_HORARIOS)
-    fechas_excluidas = set(fechas_excluidas or [])
+    excluidas_set = set(fechas_excluidas or [])
+    if incluir_festivos_colombia:
+        años = range(inicio.year, fin.year + 1)
+        excluidas_set.update(obtener_festivos_colombia(años))
+
     registros = []
     actual = inicio
     while actual <= fin:
         dia_nombre = DIAS_INV.get(actual.weekday(), "")
         for _, h in horarios.iterrows():
             dia = str(h.get("Día", "")).strip()
-            if DIAS_MAP.get(dia, -1) == actual.weekday() and actual not in fechas_excluidas:
+            if DIAS_MAP.get(dia, -1) == actual.weekday() and actual not in excluidas_set:
                 hi = parse_time_value(h.get("Hora inicio")) or time(0, 0)
                 hf = parse_time_value(h.get("Hora fin")) or time(0, 0)
                 registros.append({
@@ -155,6 +222,44 @@ def validar_plan(
     return alertas, recomendaciones
 
 
+BLOOM_VERBS = {
+    "Recordar": ["reconocer", "recordar", "definir", "listar", "nombrar", "identificar", "mencionar"],
+    "Comprender": ["interpretar", "explicar", "resumir", "clasificar", "describir", "relacionar"],
+    "Aplicar": ["aplicar", "ejecutar", "resolver", "demostrar", "usar", "emplear", "calcular", "diligenciar"],
+    "Analizar": ["analizar", "diferenciar", "organizar", "comparar", "examinar", "categorizar", "auditar"],
+    "Evaluar": ["evaluar", "juzgar", "criticar", "justificar", "argumentar", "validar", "verificar"],
+    "Crear": ["crear", "diseñar", "construir", "desarrollar", "formular", "proponer", "integrar", "planear"],
+}
+
+
+def analizar_taxonomia_bloom(objetivos: str, evaluaciones_df: pd.DataFrame) -> Dict[str, Any]:
+    """Analiza los verbos cognoscitivos de los objetivos y los contrasta con los procedimientos evaluativos."""
+    texto = (objetivos or "").lower()
+    niveles_detectados: Dict[str, int] = {k: 0 for k in BLOOM_VERBS.keys()}
+
+    for nivel, verbos in BLOOM_VERBS.items():
+        for v in verbos:
+            if re.search(r"\b" + v + r"\b", texto):
+                niveles_detectados[nivel] += 1
+
+    nivel_dominante = max(niveles_detectados, key=niveles_detectados.get) if any(niveles_detectados.values()) else "Comprender / Aplicar"
+
+    coherente = True
+    observacion = f"Nivel cognoscitivo predominante: **{nivel_dominante}**."
+    if not evaluaciones_df.empty:
+        eval_txt = " ".join(evaluaciones_df.astype(str).values.flatten()).lower()
+        if nivel_dominante in ("Analizar", "Evaluar", "Crear") and "proyecto" not in eval_txt and "caso" not in eval_txt and "sustenta" not in eval_txt:
+            coherente = False
+            observacion += " Se recomienda incluir proyectos o análisis de casos para medir niveles superiores de Bloom (Analizar/Crear)."
+
+    return {
+        "niveles": niveles_detectados,
+        "nivel_dominante": nivel_dominante,
+        "coherente": coherente,
+        "observacion": observacion,
+    }
+
+
 def score_calidad_expediente(curso_id: int) -> Tuple[int, List[Tuple[str, str, int]]]:
     c = get_curso(int(curso_id)) or {}
     payload = safe_json_loads(c.get("payload_json"), {})
@@ -234,7 +339,6 @@ def analizar_coherencia_curso(curso_id: int) -> Dict[str, Any]:
     htp = limpiar_numero(datos.get("htp", 0)) or 0
     hti = limpiar_numero(datos.get("hti", 0)) or 0
     if cred > 0:
-        esperado_total = cred * 48
         actual_semanal = htp + hti
         if actual_semanal > 0:
             add_check("Horarios/Créditos", 20, 20, "Baja", "Relación horas/créditos correcta", "Mantener")
@@ -259,12 +363,19 @@ def analizar_coherencia_curso(curso_id: int) -> Dict[str, Any]:
     else:
         add_check("Plan de Sesiones", 5, 25, "Alta", "Sin sesiones en el plan", "Expandir y guardar plan de clases.")
 
-    # 4. Soportes
+    # 4. Bloom Cognoscitivo
+    bloom = analizar_taxonomia_bloom(datos.get("objetivos_especificos", ""), evaluaciones)
+    if bloom["coherente"]:
+        add_check("Taxonomía de Bloom", 10, 10, "Baja", bloom["observacion"], "Mantener alineación cognoscitiva.")
+    else:
+        add_check("Taxonomía de Bloom", 4, 10, "Media", bloom["observacion"], "Ajustar evaluación a verbos de nivel superior.")
+
+    # 5. Soportes
     evid = evidencias_count(int(curso_id))
     if evid >= 1:
-        add_check("Evidencias", 30, 30, "Baja", f"{evid} evidencias cargadas", "OK")
+        add_check("Evidencias", 20, 20, "Baja", f"{evid} evidencias cargadas", "OK")
     else:
-        add_check("Evidencias", 10, 30, "Media", "Sin evidencias cargadas", "Subir actas, listas o guías firmadas.")
+        add_check("Evidencias", 5, 20, "Media", "Sin evidencias cargadas", "Subir actas, listas o guías firmadas.")
 
     puntos_total = sum(c[1] for c in checks)
     max_total = sum(c[2] for c in checks)
@@ -276,6 +387,7 @@ def analizar_coherencia_curso(curso_id: int) -> Dict[str, Any]:
         "puntos": puntos_total,
         "maximo": max_total,
         "checks": checks,
+        "bloom": bloom,
         "hallazgos": pd.DataFrame(hallazgos),
     }
 
@@ -309,15 +421,19 @@ def generar_sugerencias_academicas(curso_id: int) -> Dict[str, str]:
     analisis = analizar_coherencia_curso(int(curso_id))
     score = analisis.get("score", 0)
     hallazgos_df = analisis.get("hallazgos", pd.DataFrame())
+    bloom = analisis.get("bloom", {})
 
     sug = []
+    if bloom and not bloom.get("coherente", True):
+        sug.append(f"- [Taxonomía de Bloom] {bloom.get('observacion')}")
+
     if not hallazgos_df.empty:
         for _, row in hallazgos_df.iterrows():
             sug.append(f"- [{row.get('Componente')}] {row.get('Recomendación')}")
     else:
-        sug.append("Expediente en perfecto estado metodológico y normativo.")
+        sug.append("Expediente en perfecto estado metodológico, normativo y cognoscitivo.")
 
     return {
-        "diagnostico": f"El curso presenta una calidad documental del {score}%.",
+        "diagnostico": f"El curso presenta una calidad documental y curricular del {score}%. {bloom.get('observacion', '')}",
         "sugerencias": "\n".join(sug),
     }
