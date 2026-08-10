@@ -86,18 +86,19 @@ def ui_gc71(st: Any):
     # Selector para cargar programa / microcurrículo del Banco Institucional o Expediente
     df_banco = listar_asignaturas_base()
     df_exp = listar_cursos_visibles(usuario_actual)
-    asig_cargada = None
-    curso_cargado = None
 
     col_b, col_e = st.columns([1.2, 1])
+    sel_b_val = None
+    sel_e_val = None
+
     with col_b:
         if not df_banco.empty:
             opciones_banco = {"-- Seleccionar del Banco Institucional --": None}
             for _, r_b in df_banco.iterrows():
                 lbl = f"🏛️ {r_b.get('codigo','')} - {r_b.get('nombre','')} | {r_b.get('programa','')}"
-                opciones_banco[lbl] = r_b.to_dict()
-            sel_b = st.selectbox("🏛️ Seleccionar microcurrículo / Programa del Banco", list(opciones_banco.keys()), key="sel_banco_gc71")
-            asig_cargada = opciones_banco[sel_b]
+                opciones_banco[lbl] = int(r_b["id"]) if "id" in r_b and r_b["id"] != "" else r_b.to_dict()
+            sel_b_name = st.selectbox("🏛️ Seleccionar microcurrículo / Programa del Banco", list(opciones_banco.keys()), key="sel_banco_gc71")
+            sel_b_val = opciones_banco[sel_b_name]
         else:
             st.caption("💡 No hay asignaturas en el Banco Institucional.")
 
@@ -106,110 +107,155 @@ def ui_gc71(st: Any):
             opciones_exp = {"-- Cargar del Expediente Académico --": None}
             for _, r_e in df_exp.iterrows():
                 lbl = f"📁 ID {r_e.get('id')} - {r_e.get('codigo','')} {r_e.get('asignatura','')} ({r_e.get('periodo','')})"
-                opciones_exp[lbl] = r_e.to_dict()
-            sel_e = st.selectbox("📁 O seleccionar curso guardado", list(opciones_exp.keys()), key="sel_exp_gc71")
-            if opciones_exp[sel_e] is not None:
-                curso_cargado = get_curso(opciones_exp[sel_e]["id"])
+                opciones_exp[lbl] = int(r_e["id"])
+            sel_e_name = st.selectbox("📁 O seleccionar curso guardado", list(opciones_exp.keys()), key="sel_exp_gc71")
+            sel_e_val = opciones_exp[sel_e_name]
 
-    # Valores por defecto dinámicos según la selección
-    def_programa = ""
-    def_asignatura = ""
-    def_codigo = ""
-    def_area = ""
-    def_creditos = 3
-    def_htp = 2.0
-    def_hti = 4.0
-    def_just = TEXTOS_PREDEFINIDOS_GC71["justificacion"]
-    def_comp = TEXTOS_PREDEFINIDOS_GC71["competencias"]
-    def_res = TEXTOS_PREDEFINIDOS_GC71["resultados"]
-    def_obj_gen = TEXTOS_PREDEFINIDOS_GC71["objetivo_general"]
-    def_obj_esp = TEXTOS_PREDEFINIDOS_GC71["objetivos_especificos"]
-    def_metod = TEXTOS_PREDEFINIDOS_GC71["metodologias"]
-    def_amb = TEXTOS_PREDEFINIDOS_GC71["ambientes"]
-    def_med = TEXTOS_PREDEFINIDOS_GC71["medios"]
-    def_ref = TEXTOS_PREDEFINIDOS_GC71["referencias"]
+    # Determinar si la selección cambió para actualizar session_state
+    current_key = f"exp_{sel_e_val}" if sel_e_val else (f"banco_{sel_b_val}" if sel_b_val else "blank")
+    last_key = st.session_state.get("gc71_last_key", None)
 
-    if curso_cargado and curso_cargado.get("datos"):
-        d = curso_cargado["datos"]
-        def_programa = d.get("programa", "")
-        def_asignatura = d.get("asignatura", "")
-        def_codigo = d.get("codigo", "")
-        def_area = d.get("area", "")
-        try:
-            def_creditos = int(float(d.get("creditos", 3)))
-        except Exception:
-            def_creditos = 3
-        try:
-            def_htp = float(d.get("htp", 2.0))
-            def_hti = float(d.get("hti", 4.0))
-        except Exception:
-            def_htp, def_hti = 2.0, 4.0
-        def_just = d.get("justificacion", def_just)
-        def_comp = d.get("competencias", def_comp)
-        def_res = d.get("resultados", def_res)
-        def_obj_gen = d.get("objetivo_general", def_obj_gen)
-        def_obj_esp = d.get("objetivos_especificos", def_obj_esp)
-        def_metod = d.get("metodologias", def_metod)
-        def_amb = d.get("ambientes", def_amb)
-        def_med = d.get("medios", def_med)
-        def_ref = d.get("referencias", def_ref)
-    elif asig_cargada:
-        def_programa = asig_cargada.get("programa", "")
-        def_asignatura = asig_cargada.get("nombre", "")
-        def_codigo = asig_cargada.get("codigo", "")
-        def_area = asig_cargada.get("area_formacion", "")
-        try:
-            def_creditos = int(float(asig_cargada.get("creditos", 3)))
-        except Exception:
-            def_creditos = 3
-        try:
-            def_htp = float(asig_cargada.get("htp", 2.0))
-            def_hti = float(asig_cargada.get("hti", 4.0))
-        except Exception:
-            def_htp, def_hti = 2.0, 4.0
-        def_just = asig_cargada.get("justificacion") or def_just
-        def_comp = asig_cargada.get("competencias") or def_comp
-        def_res = asig_cargada.get("resultados") or def_res
-        def_obj_gen = asig_cargada.get("objetivos") or def_obj_gen
-        def_metod = asig_cargada.get("metodologia") or def_metod
-        def_amb = asig_cargada.get("ambientes") or def_amb
-        def_med = asig_cargada.get("medios") or def_med
-        def_ref = asig_cargada.get("bibliografia") or def_ref
+    if last_key != current_key:
+        st.session_state["gc71_last_key"] = current_key
+
+        d = {}
+        payload = {}
+        if sel_e_val:
+            curso = get_curso(sel_e_val)
+            if curso:
+                payload = safe_json_loads(curso.get("payload_json"), {})
+                d = payload.get("datos", {})
+                if not d:
+                    d = {
+                        "codigo": curso.get("codigo", ""),
+                        "grupo": curso.get("grupo", ""),
+                        "asignatura": curso.get("asignatura", ""),
+                        "programa": curso.get("programa", ""),
+                        "periodo": curso.get("periodo", ""),
+                        "profesor": curso.get("profesor", ""),
+                        "correo": curso.get("email_profesor", ""),
+                        "creditos": curso.get("creditos", 3),
+                        "htp": curso.get("htp", 2.0),
+                        "hti": curso.get("hti", 4.0),
+                    }
+        elif sel_b_val:
+            if isinstance(sel_b_val, dict):
+                d = sel_b_val
+            else:
+                from src.repositories.subject_repository import get_asignatura_base
+                d = get_asignatura_base(sel_b_val) or {}
+
+        if d:
+            st.session_state["input_programa"] = d.get("programa", "")
+            st.session_state["input_asignatura"] = d.get("asignatura") or d.get("nombre") or ""
+            st.session_state["input_codigo"] = d.get("codigo", "")
+            st.session_state["input_area"] = d.get("area") or d.get("area_formacion") or ""
+            st.session_state["input_profesor"] = d.get("profesor") or usuario_actual.get("nombre_completo", "")
+            st.session_state["input_cedula"] = d.get("cedula_docente", "")
+            st.session_state["input_correo"] = d.get("correo") or d.get("email_profesor") or usuario_actual.get("email", "")
+            st.session_state["input_grupo"] = d.get("grupo", "")
+            st.session_state["input_periodo"] = d.get("periodo", "2026-1")
+
+            tipo_val = d.get("tipo_asignatura", "Teórico-práctica")
+            st.session_state["input_tipo"] = tipo_val if tipo_val in ["Teórica", "Teórico-práctica", "Práctica"] else "Teórico-práctica"
+
+            try:
+                st.session_state["input_creditos"] = int(float(d.get("creditos", 3)))
+            except Exception:
+                st.session_state["input_creditos"] = 3
+
+            try:
+                st.session_state["input_htp"] = float(d.get("htp", 2.0))
+                st.session_state["input_hti"] = float(d.get("hti", 4.0))
+            except Exception:
+                st.session_state["input_htp"] = 2.0
+                st.session_state["input_hti"] = 4.0
+
+            st.session_state["input_prerrequisitos"] = d.get("prerrequisitos", "Ninguno")
+            st.session_state["input_correquisitos"] = d.get("correquisitos", "Ninguno")
+
+            st.session_state["input_justificacion"] = d.get("justificacion") or TEXTOS_PREDEFINIDOS_GC71["justificacion"]
+            st.session_state["input_competencias"] = d.get("competencias") or TEXTOS_PREDEFINIDOS_GC71["competencias"]
+            st.session_state["input_resultados"] = d.get("resultados") or TEXTOS_PREDEFINIDOS_GC71["resultados"]
+            st.session_state["input_objetivo_general"] = d.get("objetivo_general") or d.get("objetivos") or TEXTOS_PREDEFINIDOS_GC71["objetivo_general"]
+            st.session_state["input_objetivos_especificos"] = d.get("objetivos_especificos") or TEXTOS_PREDEFINIDOS_GC71["objetivos_especificos"]
+            st.session_state["input_metodologias"] = d.get("metodologias") or d.get("metodologia") or TEXTOS_PREDEFINIDOS_GC71["metodologias"]
+            st.session_state["input_ambientes"] = d.get("ambientes") or TEXTOS_PREDEFINIDOS_GC71["ambientes"]
+            st.session_state["input_medios"] = d.get("medios") or TEXTOS_PREDEFINIDOS_GC71["medios"]
+            st.session_state["input_referencias"] = d.get("referencias") or d.get("bibliografia") or TEXTOS_PREDEFINIDOS_GC71["referencias"]
+
+            if payload.get("modulos"):
+                st.session_state["modulos_gc71"] = payload_to_df(payload["modulos"], COLUMNAS_MODULOS)
+            if payload.get("evaluaciones"):
+                st.session_state["evaluaciones_gc71"] = payload_to_df(payload["evaluaciones"], COLUMNAS_EVALUACIONES)
+
+        st.rerun()
+
+    # Inicializar valores por defecto en session_state si es la primera vez
+    if "input_programa" not in st.session_state:
+        st.session_state["input_programa"] = ""
+        st.session_state["input_asignatura"] = ""
+        st.session_state["input_codigo"] = ""
+        st.session_state["input_area"] = ""
+        st.session_state["input_profesor"] = usuario_actual.get("nombre_completo", "")
+        st.session_state["input_cedula"] = ""
+        st.session_state["input_correo"] = usuario_actual.get("email", "")
+        st.session_state["input_grupo"] = ""
+        st.session_state["input_periodo"] = "2026-1"
+        st.session_state["input_tipo"] = "Teórico-práctica"
+        st.session_state["input_creditos"] = 3
+        st.session_state["input_htp"] = 2.0
+        st.session_state["input_hti"] = 4.0
+        st.session_state["input_prerrequisitos"] = "Ninguno"
+        st.session_state["input_correquisitos"] = "Ninguno"
+
+        st.session_state["input_justificacion"] = TEXTOS_PREDEFINIDOS_GC71["justificacion"]
+        st.session_state["input_competencias"] = TEXTOS_PREDEFINIDOS_GC71["competencias"]
+        st.session_state["input_resultados"] = TEXTOS_PREDEFINIDOS_GC71["resultados"]
+        st.session_state["input_objetivo_general"] = TEXTOS_PREDEFINIDOS_GC71["objetivo_general"]
+        st.session_state["input_objetivos_especificos"] = TEXTOS_PREDEFINIDOS_GC71["objetivos_especificos"]
+        st.session_state["input_metodologias"] = TEXTOS_PREDEFINIDOS_GC71["metodologias"]
+        st.session_state["input_ambientes"] = TEXTOS_PREDEFINIDOS_GC71["ambientes"]
+        st.session_state["input_medios"] = TEXTOS_PREDEFINIDOS_GC71["medios"]
+        st.session_state["input_referencias"] = TEXTOS_PREDEFINIDOS_GC71["referencias"]
 
     with st.expander("1. Identificación de la asignatura", expanded=True):
         c1, c2, c3 = st.columns([1.2, 1.2, 0.8])
         with c1:
-            programa = st.text_input("Programa académico", value=def_programa)
-            asignatura = st.text_input("Asignatura", value=def_asignatura)
-            codigo = st.text_input("Código", value=def_codigo)
-            area = st.text_input("Área de formación", value=def_area)
+            programa = st.text_input("Programa académico", key="input_programa")
+            asignatura = st.text_input("Asignatura", key="input_asignatura")
+            codigo = st.text_input("Código", key="input_codigo")
+            area = st.text_input("Área de formación", key="input_area")
         with c2:
-            profesor = st.text_input("Profesor", value=usuario_actual.get("nombre_completo", ""))
-            cedula_docente = st.text_input("Cédula docente", value="")
-            correo = st.text_input("Correo electrónico", value=usuario_actual.get("email", ""))
-            grupo = st.text_input("Grupo", value="")
+            profesor = st.text_input("Profesor", key="input_profesor")
+            cedula_docente = st.text_input("Cédula docente", key="input_cedula")
+            correo = st.text_input("Correo electrónico", key="input_correo")
+            grupo = st.text_input("Grupo", key="input_grupo")
         with c3:
-            periodo = st.text_input("Periodo académico", value="2026-1")
-            tipo = st.selectbox("Tipo de asignatura", ["Teórica", "Teórico-práctica", "Práctica"], index=1)
-            creditos = st.number_input("Número de créditos", min_value=0, step=1, value=def_creditos)
-            htp = st.number_input("HTP semanal", min_value=0.0, step=0.5, value=def_htp)
-            hti = st.number_input("HTI semanal", min_value=0.0, step=0.5, value=def_hti)
-        prerrequisitos = st.text_input("Prerrequisito(s)", value="Ninguno")
-        correquisitos = st.text_input("Correquisito(s)", value="Ninguno")
+            periodo = st.text_input("Periodo académico", key="input_periodo")
+            tipo_opts = ["Teórica", "Teórico-práctica", "Práctica"]
+            tipo_curr = st.session_state.get("input_tipo", "Teórico-práctica")
+            tipo_idx = tipo_opts.index(tipo_curr) if tipo_curr in tipo_opts else 1
+            tipo = st.selectbox("Tipo de asignatura", tipo_opts, index=tipo_idx, key="input_tipo")
+            creditos = st.number_input("Número de créditos", min_value=0, step=1, key="input_creditos")
+            htp = st.number_input("HTP semanal", min_value=0.0, step=0.5, key="input_htp")
+            hti = st.number_input("HTI semanal", min_value=0.0, step=0.5, key="input_hti")
+        prerrequisitos = st.text_input("Prerrequisito(s)", key="input_prerrequisitos")
+        correquisitos = st.text_input("Correquisito(s)", key="input_correquisitos")
 
     with st.expander("2. Textos académicos base", expanded=False):
         col1, col2 = st.columns(2)
         with col1:
-            justificacion = st.text_area("Justificación", def_just, height=140)
-            competencias = st.text_area("Competencias a las que tributa", def_comp, height=130)
-            resultados = st.text_area("Resultados de aprendizaje", def_res, height=130)
-            objetivo_general = st.text_area("Objetivo general", def_obj_gen, height=110)
+            justificacion = st.text_area("Justificación", key="input_justificacion", height=140)
+            competencias = st.text_area("Competencias a las que tributa", key="input_competencias", height=130)
+            resultados = st.text_area("Resultados de aprendizaje", key="input_resultados", height=130)
+            objetivo_general = st.text_area("Objetivo general", key="input_objetivo_general", height=110)
         with col2:
-            objetivos_especificos = st.text_area("Objetivos específicos", def_obj_esp, height=140)
-            metodologias = st.text_area("Metodologías y estrategias didácticas", def_metod, height=130)
-            ambientes = st.text_area("Ambientes de aprendizaje", def_amb, height=100)
-            medios = st.text_area("Medios educativos", def_med, height=100)
-            referencias = st.text_area("Referencias bibliográficas", def_ref, height=100)
+            objetivos_especificos = st.text_area("Objetivos específicos", key="input_objetivos_especificos", height=140)
+            metodologias = st.text_area("Metodologías y estrategias didácticas", key="input_metodologias", height=130)
+            ambientes = st.text_area("Ambientes de aprendizaje", key="input_ambientes", height=100)
+            medios = st.text_area("Medios educativos", key="input_medios", height=100)
+            referencias = st.text_area("Referencias bibliográficas", key="input_referencias", height=100)
 
     st.subheader("3. Módulos / unidades e intensidad")
     criterio = st.radio("Criterio de expansión del cronograma", ["Horas presenciales", "Sesiones"], horizontal=True)
