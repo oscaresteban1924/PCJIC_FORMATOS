@@ -73,6 +73,9 @@ def curso_key(row: Any, idx: int) -> str:
     return f"curso_{idx}_{codigo}_{grupo}_{asignatura}"
 
 
+from src.repositories.subject_repository import listar_asignaturas_base
+
+
 def ui_gc71(st: Any):
     with st.expander("Qué hace este módulo", expanded=False):
         st.markdown("Genera la guía didáctica FD-GC71, cronograma automático según horario, evaluación concertada y plantilla Excel de evaluación.")
@@ -80,13 +83,106 @@ def ui_gc71(st: Any):
     st.header("FD-GC71 - Guía didáctica y concertación de evaluación")
     usuario_actual = st.session_state.get("auth_user", {})
 
+    # Selector para cargar programa / microcurrículo del Banco Institucional o Expediente
+    df_banco = listar_asignaturas_base()
+    df_exp = listar_cursos_visibles(usuario_actual)
+    asig_cargada = None
+    curso_cargado = None
+
+    col_b, col_e = st.columns([1.2, 1])
+    with col_b:
+        if not df_banco.empty:
+            opciones_banco = {"-- Seleccionar del Banco Institucional --": None}
+            for _, r_b in df_banco.iterrows():
+                lbl = f"🏛️ {r_b.get('codigo','')} - {r_b.get('nombre','')} | {r_b.get('programa','')}"
+                opciones_banco[lbl] = r_b.to_dict()
+            sel_b = st.selectbox("🏛️ Seleccionar microcurrículo / Programa del Banco", list(opciones_banco.keys()), key="sel_banco_gc71")
+            asig_cargada = opciones_banco[sel_b]
+        else:
+            st.caption("💡 No hay asignaturas en el Banco Institucional.")
+
+    with col_e:
+        if not df_exp.empty:
+            opciones_exp = {"-- Cargar del Expediente Académico --": None}
+            for _, r_e in df_exp.iterrows():
+                lbl = f"📁 ID {r_e.get('id')} - {r_e.get('codigo','')} {r_e.get('asignatura','')} ({r_e.get('periodo','')})"
+                opciones_exp[lbl] = r_e.to_dict()
+            sel_e = st.selectbox("📁 O seleccionar curso guardado", list(opciones_exp.keys()), key="sel_exp_gc71")
+            if opciones_exp[sel_e] is not None:
+                curso_cargado = get_curso(opciones_exp[sel_e]["id"])
+
+    # Valores por defecto dinámicos según la selección
+    def_programa = ""
+    def_asignatura = ""
+    def_codigo = ""
+    def_area = ""
+    def_creditos = 3
+    def_htp = 2.0
+    def_hti = 4.0
+    def_just = TEXTOS_PREDEFINIDOS_GC71["justificacion"]
+    def_comp = TEXTOS_PREDEFINIDOS_GC71["competencias"]
+    def_res = TEXTOS_PREDEFINIDOS_GC71["resultados"]
+    def_obj_gen = TEXTOS_PREDEFINIDOS_GC71["objetivo_general"]
+    def_obj_esp = TEXTOS_PREDEFINIDOS_GC71["objetivos_especificos"]
+    def_metod = TEXTOS_PREDEFINIDOS_GC71["metodologias"]
+    def_amb = TEXTOS_PREDEFINIDOS_GC71["ambientes"]
+    def_med = TEXTOS_PREDEFINIDOS_GC71["medios"]
+    def_ref = TEXTOS_PREDEFINIDOS_GC71["referencias"]
+
+    if curso_cargado and curso_cargado.get("datos"):
+        d = curso_cargado["datos"]
+        def_programa = d.get("programa", "")
+        def_asignatura = d.get("asignatura", "")
+        def_codigo = d.get("codigo", "")
+        def_area = d.get("area", "")
+        try:
+            def_creditos = int(float(d.get("creditos", 3)))
+        except Exception:
+            def_creditos = 3
+        try:
+            def_htp = float(d.get("htp", 2.0))
+            def_hti = float(d.get("hti", 4.0))
+        except Exception:
+            def_htp, def_hti = 2.0, 4.0
+        def_just = d.get("justificacion", def_just)
+        def_comp = d.get("competencias", def_comp)
+        def_res = d.get("resultados", def_res)
+        def_obj_gen = d.get("objetivo_general", def_obj_gen)
+        def_obj_esp = d.get("objetivos_especificos", def_obj_esp)
+        def_metod = d.get("metodologias", def_metod)
+        def_amb = d.get("ambientes", def_amb)
+        def_med = d.get("medios", def_med)
+        def_ref = d.get("referencias", def_ref)
+    elif asig_cargada:
+        def_programa = asig_cargada.get("programa", "")
+        def_asignatura = asig_cargada.get("nombre", "")
+        def_codigo = asig_cargada.get("codigo", "")
+        def_area = asig_cargada.get("area_formacion", "")
+        try:
+            def_creditos = int(float(asig_cargada.get("creditos", 3)))
+        except Exception:
+            def_creditos = 3
+        try:
+            def_htp = float(asig_cargada.get("htp", 2.0))
+            def_hti = float(asig_cargada.get("hti", 4.0))
+        except Exception:
+            def_htp, def_hti = 2.0, 4.0
+        def_just = asig_cargada.get("justificacion") or def_just
+        def_comp = asig_cargada.get("competencias") or def_comp
+        def_res = asig_cargada.get("resultados") or def_res
+        def_obj_gen = asig_cargada.get("objetivos") or def_obj_gen
+        def_metod = asig_cargada.get("metodologia") or def_metod
+        def_amb = asig_cargada.get("ambientes") or def_amb
+        def_med = asig_cargada.get("medios") or def_med
+        def_ref = asig_cargada.get("bibliografia") or def_ref
+
     with st.expander("1. Identificación de la asignatura", expanded=True):
         c1, c2, c3 = st.columns([1.2, 1.2, 0.8])
         with c1:
-            programa = st.text_input("Programa académico", value="")
-            asignatura = st.text_input("Asignatura", value="")
-            codigo = st.text_input("Código", value="")
-            area = st.text_input("Área de formación", value="")
+            programa = st.text_input("Programa académico", value=def_programa)
+            asignatura = st.text_input("Asignatura", value=def_asignatura)
+            codigo = st.text_input("Código", value=def_codigo)
+            area = st.text_input("Área de formación", value=def_area)
         with c2:
             profesor = st.text_input("Profesor", value=usuario_actual.get("nombre_completo", ""))
             cedula_docente = st.text_input("Cédula docente", value="")
@@ -95,25 +191,25 @@ def ui_gc71(st: Any):
         with c3:
             periodo = st.text_input("Periodo académico", value="2026-1")
             tipo = st.selectbox("Tipo de asignatura", ["Teórica", "Teórico-práctica", "Práctica"], index=1)
-            creditos = st.number_input("Número de créditos", min_value=0, step=1, value=3)
-            htp = st.number_input("HTP semanal", min_value=0.0, step=0.5, value=2.0)
-            hti = st.number_input("HTI semanal", min_value=0.0, step=0.5, value=4.0)
+            creditos = st.number_input("Número de créditos", min_value=0, step=1, value=def_creditos)
+            htp = st.number_input("HTP semanal", min_value=0.0, step=0.5, value=def_htp)
+            hti = st.number_input("HTI semanal", min_value=0.0, step=0.5, value=def_hti)
         prerrequisitos = st.text_input("Prerrequisito(s)", value="Ninguno")
         correquisitos = st.text_input("Correquisito(s)", value="Ninguno")
 
     with st.expander("2. Textos académicos base", expanded=False):
         col1, col2 = st.columns(2)
         with col1:
-            justificacion = st.text_area("Justificación", TEXTOS_PREDEFINIDOS_GC71["justificacion"], height=140)
-            competencias = st.text_area("Competencias a las que tributa", TEXTOS_PREDEFINIDOS_GC71["competencias"], height=130)
-            resultados = st.text_area("Resultados de aprendizaje", TEXTOS_PREDEFINIDOS_GC71["resultados"], height=130)
-            objetivo_general = st.text_area("Objetivo general", TEXTOS_PREDEFINIDOS_GC71["objetivo_general"], height=110)
+            justificacion = st.text_area("Justificación", def_just, height=140)
+            competencias = st.text_area("Competencias a las que tributa", def_comp, height=130)
+            resultados = st.text_area("Resultados de aprendizaje", def_res, height=130)
+            objetivo_general = st.text_area("Objetivo general", def_obj_gen, height=110)
         with col2:
-            objetivos_especificos = st.text_area("Objetivos específicos", TEXTOS_PREDEFINIDOS_GC71["objetivos_especificos"], height=140)
-            metodologias = st.text_area("Metodologías y estrategias didácticas", TEXTOS_PREDEFINIDOS_GC71["metodologias"], height=130)
-            ambientes = st.text_area("Ambientes de aprendizaje", TEXTOS_PREDEFINIDOS_GC71["ambientes"], height=100)
-            medios = st.text_area("Medios educativos", TEXTOS_PREDEFINIDOS_GC71["medios"], height=100)
-            referencias = st.text_area("Referencias bibliográficas", TEXTOS_PREDEFINIDOS_GC71["referencias"], height=100)
+            objetivos_especificos = st.text_area("Objetivos específicos", def_obj_esp, height=140)
+            metodologias = st.text_area("Metodologías y estrategias didácticas", def_metod, height=130)
+            ambientes = st.text_area("Ambientes de aprendizaje", def_amb, height=100)
+            medios = st.text_area("Medios educativos", def_med, height=100)
+            referencias = st.text_area("Referencias bibliográficas", def_ref, height=100)
 
     st.subheader("3. Módulos / unidades e intensidad")
     criterio = st.radio("Criterio de expansión del cronograma", ["Horas presenciales", "Sesiones"], horizontal=True)
