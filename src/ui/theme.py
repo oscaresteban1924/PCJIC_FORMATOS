@@ -62,8 +62,6 @@ UX_MODULE_META: Dict[str, Dict[str, Any]] = {
     "Ayuda / flujo recomendado": {"icon": "❓", "group": "Ayuda", "desc": "Flujo de trabajo y preguntas frecuentes.", "step": 1},
 }
 
-UX_GROUP_ORDER = ["Inicio", "Dirección", "Operación", "Formatos", "Gobierno", "Administración", "Sistema", "Cuenta", "Ayuda"]
-
 
 def ux_meta(modulo: str) -> Dict[str, Any]:
     return UX_MODULE_META.get(modulo, {"icon": "▫️", "group": "Otros", "desc": "Módulo del sistema.", "step": 1})
@@ -75,7 +73,7 @@ def ux_label(modulo: str) -> str:
 
 
 def ux_apply_theme(st: Any):
-    """Inyecta el sistema visual premium."""
+    """Inyecta el sistema visual premium con legibilidad perfecta."""
     st.markdown(
         """
 <style>
@@ -103,23 +101,37 @@ html, body, [data-testid="stAppViewContainer"] {
     max-width: 1480px !important;
 }
 [data-testid="stHeader"] { background: rgba(246,248,252,.72) !important; backdrop-filter: blur(10px); }
+
+/* Sidebar styling */
 [data-testid="stSidebar"] > div:first-child {
     background: linear-gradient(180deg, #0f172a 0%, #15254c 52%, #0f172a 100%) !important;
-    color: #fff !important;
+    color: #ffffff !important;
     border-right: 1px solid rgba(255,255,255,.08);
 }
-[data-testid="stSidebar"] label, [data-testid="stSidebar"] p, [data-testid="stSidebar"] span,
-[data-testid="stSidebar"] div, [data-testid="stSidebar"] small { color: rgba(255,255,255,.88) !important; }
-[data-testid="stSidebar"] input, [data-testid="stSidebar"] textarea {
-    background: rgba(255,255,255,.10) !important;
-    color: #fff !important;
-    border: 1px solid rgba(255,255,255,.18) !important;
+[data-testid="stSidebar"] label, 
+[data-testid="stSidebar"] .stMarkdown,
+[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
+    color: #ffffff !important;
 }
-[data-testid="stSidebar"] [data-baseweb="select"] > div {
-    background: rgba(255,255,255,.11) !important;
-    border-color: rgba(255,255,255,.22) !important;
-    border-radius: 14px !important;
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
+    color: rgba(255,255,255,0.75) !important;
 }
+
+/* BaseWeb Selectbox styling fix - High Contrast & Crisp Visibility */
+[data-testid="stSidebar"] [data-baseweb="select"] {
+    background-color: #ffffff !important;
+    border-radius: 12px !important;
+    border: 1px solid rgba(255,255,255,0.3) !important;
+}
+[data-testid="stSidebar"] [data-baseweb="select"] * {
+    color: #0f172a !important;
+    font-weight: 600 !important;
+}
+div[data-baseweb="popover"] * {
+    color: #0f172a !important;
+    background-color: #ffffff !important;
+}
+
 [data-testid="stMetric"] {
     background: rgba(255,255,255,.88);
     border: 1px solid var(--ux-line);
@@ -142,8 +154,8 @@ html, body, [data-testid="stAppViewContainer"] {
     margin-bottom: 1.05rem;
     border: 1px solid rgba(255,255,255,.18);
 }
-.ux-hero h1 { margin: 0 0 .35rem 0; font-size: 1.75rem; line-height: 1.15; }
-.ux-hero p { margin: 0; color: rgba(255,255,255,.86); font-size: .98rem; }
+.ux-hero h1 { margin: 0 0 .35rem 0; font-size: 1.75rem; line-height: 1.15; color: #ffffff !important; }
+.ux-hero p { margin: 0; color: rgba(255,255,255,.86) !important; font-size: .98rem; }
 .ux-card {
     background: rgba(255,255,255,.92);
     border: 1px solid var(--ux-line);
@@ -194,8 +206,8 @@ def ux_render_hero(st: Any, modulo: str, user: Dict[str, Any]):
                 <p>{meta.get('desc','Gestión académica institucional.')}</p>
             </div>
             <div style="text-align:right;">
-                <div class="ux-chip">👤 {user.get('nombre_completo', user.get('usuario',''))}</div>
-                <div class="ux-chip" style="margin-top:.35rem;">🛡️ Perfil: {user.get('rol','Docente')}</div>
+                <div style="background:rgba(255,255,255,0.2); padding:0.25rem 0.75rem; border-radius:12px; font-weight:600;">👤 {user.get('nombre_completo', user.get('usuario',''))}</div>
+                <div style="background:rgba(255,255,255,0.2); padding:0.25rem 0.75rem; border-radius:12px; font-weight:600; margin-top:.35rem;">🛡️ Perfil: {user.get('rol','Docente')}</div>
             </div>
         </div>
     </div>
@@ -221,7 +233,8 @@ def ux_sidebar(st: Any, user: Dict[str, Any]) -> str:
             key="sidebar_module_select",
         )
 
-        if st.button("Cerrar sesión", use_container_width=True):
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🚪 Cerrar sesión", use_container_width=True):
             st.session_state.clear()
             st.rerun()
 
