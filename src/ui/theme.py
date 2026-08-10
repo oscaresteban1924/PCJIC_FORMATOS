@@ -132,6 +132,30 @@ div[data-baseweb="popover"] * {
     background-color: #ffffff !important;
 }
 
+/* Sidebar Button styling fix - Ensures Cerrar sesión button text is 100% visible */
+[data-testid="stSidebar"] .stButton > button,
+[data-testid="stSidebar"] .stDownloadButton > button {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+    border: 1px solid rgba(15, 23, 42, 0.2) !important;
+    border-radius: 12px !important;
+    font-weight: 700 !important;
+}
+[data-testid="stSidebar"] .stButton > button *,
+[data-testid="stSidebar"] .stDownloadButton > button * {
+    color: #0f172a !important;
+}
+[data-testid="stSidebar"] .stButton > button:hover,
+[data-testid="stSidebar"] .stDownloadButton > button:hover {
+    background-color: #dc2626 !important;
+    color: #ffffff !important;
+    border-color: #dc2626 !important;
+}
+[data-testid="stSidebar"] .stButton > button:hover *,
+[data-testid="stSidebar"] .stDownloadButton > button:hover * {
+    color: #ffffff !important;
+}
+
 [data-testid="stMetric"] {
     background: rgba(255,255,255,.88);
     border: 1px solid var(--ux-line);
