@@ -186,3 +186,56 @@ def restaurar_backup_sistema_json(json_bytes: bytes) -> Tuple[bool, str]:
     except Exception as e:
         return False, f"Error durante la restauración: {str(e)}"
 
+
+def generar_certificado_calidad_html(curso_id: int) -> str:
+    """Genera un certificado digital de calidad institucional formal en HTML para guardar como PDF."""
+    curso = get_curso(int(curso_id)) or {}
+    digest, meta = _hash_expediente(int(curso_id))
+    from src.services.academic_service import score_calidad_expediente
+    score, _ = score_calidad_expediente(int(curso_id))
+
+    return f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Certificado de Calidad Académica - ID {curso_id}</title>
+    <style>
+        @page {{ size: letter landscape; margin: 2cm; }}
+        body {{ font-family: 'Georgia', serif; color: #002060; text-align: center; padding: 40px; border: 12px double #002060; background: #fafafa; }}
+        h1 {{ font-size: 26pt; margin-bottom: 5px; letter-spacing: 1px; }}
+        h2 {{ font-size: 16pt; font-weight: normal; color: #444; margin-top: 0; }}
+        .cert-body {{ font-size: 13pt; line-height: 1.8; color: #222; margin: 30px auto; max-width: 800px; text-align: justify; }}
+        .highlight {{ font-weight: bold; color: #002060; }}
+        .badge-box {{ display: inline-block; background: #e0e7ff; color: #1e3a8a; font-size: 18pt; font-weight: bold; padding: 10px 25px; border-radius: 8px; margin: 15px 0; border: 2px solid #1d4ed8; }}
+        .footer-cert {{ margin-top: 50px; font-size: 9pt; color: #666; font-family: monospace; border-top: 1px solid #ccc; padding-top: 15px; }}
+        .print-btn {{ display: block; width: 220px; margin: 0 auto 20px auto; padding: 12px; background: #002060; color: white; border-radius: 6px; font-weight: bold; cursor: pointer; text-decoration: none; font-family: sans-serif; }}
+        @media print {{ .print-btn {{ display: none; }} }}
+    </style>
+</head>
+<body>
+    <button class="print-btn" onclick="window.print()">🖨️ Imprimir Certificado PDF</button>
+
+    <h1>POLITÉCNICO COLOMBIANO JAIME ISAZA CADAVID</h1>
+    <h2>VICERRECTORÍA DOCENTE - SISTEMA INSTITUCIONAL DE GESTIÓN ACADÉMICA</h2>
+    
+    <hr style="width: 60%; border: 1px solid #002060; margin: 20px auto;">
+
+    <p style="font-size: 16pt; font-style: italic;">Certifica que el expediente docente del curso:</p>
+
+    <div class="badge-box">{curso.get('asignatura','').upper()} (Grupo {curso.get('grupo','')})</div>
+
+    <div class="cert-body">
+        Ha completado satisfactoriamente el proceso de estructuración curricular, concertación evaluativa, planificación de sesiones y registro de evidencias bajo los estándares de calidad institucional de los formatos <span class="highlight">FD-GC71</span> y <span class="highlight">FD-GC72</span> para el periodo académico <span class="highlight">{curso.get('periodo','')}</span>, alcanzando un nivel de cumplimiento del <span class="highlight">{score}%</span>.
+    </div>
+
+    <p style="margin-top: 40px;"><strong>Docente Titular:</strong> {curso.get('profesor','')}</p>
+    <p><strong>Fecha de Expedición:</strong> {date.today().strftime('%d de %B de %Y')}</p>
+
+    <div class="footer-cert">
+        🔒 HUELLA DIGITAL SHA-256: {digest}<br>
+        VERIFICACIÓN DIGITAL: SISTEMA DE GOBIERNO ACADÉMICO ENTERPRISE PCJIC
+    </div>
+</body>
+</html>
+"""
+

@@ -341,7 +341,24 @@ def ui_expediente_academico(st: Any):
 
 def ui_planeador_superior(st: Any):
     st.header("Planeador superior de cursos")
-    st.info("Utilice este módulo para armar cursos, expandir planes de clases y exportar el paquete integrado en ZIP.")
+    st.info("Utilice este módulo para armar cursos, expandir planes de clases, clonar periodos anteriores y exportar el paquete integrado en ZIP.")
+
+    with st.expander("🔄 Clonar curso desde periodo anterior", expanded=False):
+        user = st.session_state.get("auth_user", {})
+        df_c = listar_cursos_visibles(user)
+        if not df_c.empty:
+            c_dict = {f"ID {r['id']} - {r['codigo']} {r['asignatura']} ({r['periodo']})": int(r["id"]) for _, r in df_c.iterrows()}
+            src_id = c_dict[st.selectbox("Seleccione curso a duplicar", list(c_dict.keys()), key="clon_src")]
+            target_period = st.text_input("Nuevo periodo de destino", value="2026-2", key="clon_target")
+            if st.button("Clonar Syllabus y Planeación a Nuevo Periodo", use_container_width=True):
+                try:
+                    from src.repositories.course_repository import clonar_curso_a_nuevo_periodo
+                    new_id = clonar_curso_a_nuevo_periodo(src_id, target_period, user=user)
+                    st.success(f"✅ Curso clonado exitosamente para el periodo {target_period} con nuevo ID {new_id}.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error al clonar curso: {e}")
+
     ui_gc71(st)
 
 
@@ -375,7 +392,7 @@ def ui_evidencias(st: Any):
 
 def ui_cargador_inteligente(st: Any):
     st.header("Cargador inteligente de notas y listados")
-    st.caption("Inspecciona automáticamente archivos Excel o CSV, identifica encabezados y valida formatos.")
+    st.caption("Inspecciona automáticamente archivos Excel o CSV, identifica encabezados y valida duplicados.")
     uploaded = st.file_uploader("Cargar listado o plantilla Excel", type=["xlsx", "xls", "csv"])
     if uploaded is not None:
         tablas = leer_excel_inteligente(uploaded)
@@ -383,6 +400,13 @@ def ui_cargador_inteligente(st: Any):
             st.subheader(f"Hoja: {name}")
             st.dataframe(df.head(20), use_container_width=True)
             norm = normalizar_estudiantes_inteligente(df, {})
+
+            from src.services.excel_service import detectar_duplicados_estudiantes
+            dups = detectar_duplicados_estudiantes(norm)
+            if not dups.empty:
+                st.warning(f"⚠️ Se detectaron {len(dups)} registros duplicados por Documento o Nombre en el listado cargado:")
+                st.dataframe(dups[["Documento", "Nombre completo", "Correo", "Estado"]], use_container_width=True, hide_index=True)
+
             diag = diagnostico_tabla_estudiantes(norm)
             st.dataframe(diag, use_container_width=True)
 

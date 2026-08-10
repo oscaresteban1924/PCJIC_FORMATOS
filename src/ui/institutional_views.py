@@ -121,7 +121,16 @@ def ui_coherencia_academica(st: Any):
     cid = opciones[st.selectbox("Curso a auditar", list(opciones.keys()))]
 
     res = analizar_coherencia_curso(cid)
-    st.metric("Puntuación de Coherencia", f"{res['score']}%")
+    col_m1, col_m2 = st.columns([1, 1])
+    with col_m1:
+        st.metric("Puntuación de Coherencia Curricular", f"{res['score']}%")
+    with col_m2:
+        try:
+            from src.services.export_service import generar_certificado_calidad_html
+            cert_html = generar_certificado_calidad_html(cid)
+            st.download_button("📜 Generar Certificado de Calidad (HTML/PDF)", data=cert_html, file_name=f"Certificado_Calidad_ID_{cid}.html", mime="text/html", use_container_width=True)
+        except Exception as e:
+            st.error(f"Error al generar certificado: {e}")
 
     if not res["hallazgos"].empty:
         st.subheader("Hallazgos detectados")
@@ -401,3 +410,14 @@ def ui_auditoria(st: Any):
         filtrado = filtrado[filtrado["accion"].astype(str).str.contains(filtro_accion.strip(), case=False, na=False)]
 
     st.dataframe(filtrado, use_container_width=True, hide_index=True)
+
+    st.subheader("Exportar Bitácora Filtrada")
+    exp_c1, exp_c2 = st.columns(2)
+    with exp_c1:
+        from src.services.excel_service import dataframe_to_xlsx_bytes
+        xlsx_bytes = dataframe_to_xlsx_bytes({"Auditoria_Seguridad": filtrado})
+        st.download_button("📥 Descargar Bitácora en Excel (.xlsx)", data=xlsx_bytes, file_name="Bitacora_Auditoria_PCJIC.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+
+    with exp_c2:
+        csv_bytes = filtrado.to_csv(index=False).encode("utf-8-sig")
+        st.download_button("📥 Descargar Bitácora en CSV (.csv)", data=csv_bytes, file_name="Bitacora_Auditoria_PCJIC.csv", mime="text/csv", use_container_width=True)

@@ -530,6 +530,38 @@ def calcular_estadisticas_curso(df_notas: pd.DataFrame, columna_nota: str = "Not
     }
 
 
+def detectar_duplicados_estudiantes(df_est: pd.DataFrame) -> pd.DataFrame:
+    """Inspecciona un listado de estudiantes y retorna los registros duplicados por Documento o Nombre."""
+    if df_est is None or df_est.empty:
+        return pd.DataFrame()
+
+    df = df_est.copy()
+    col_doc = "Documento llave" if "Documento llave" in df.columns else ("Documento" if "Documento" in df.columns else None)
+    col_nom = "Nombre completo" if "Nombre completo" in df.columns else None
+
+    conds = []
+    if col_doc and col_doc in df.columns:
+        valid_docs = df[df[col_doc].astype(str).str.strip().ne("")][col_doc]
+        dups_doc = valid_docs[valid_docs.duplicated(keep=False)].unique()
+        if len(dups_doc) > 0:
+            conds.append(df[col_doc].isin(dups_doc))
+
+    if col_nom and col_nom in df.columns:
+        valid_noms = df[df[col_nom].astype(str).str.strip().ne("")][col_nom]
+        dups_nom = valid_noms[valid_noms.duplicated(keep=False)].unique()
+        if len(dups_nom) > 0:
+            conds.append(df[col_nom].isin(dups_nom))
+
+    if not conds:
+        return pd.DataFrame()
+
+    mask = conds[0]
+    for c in conds[1:]:
+        mask = mask | c
+
+    return df[mask].reset_index(drop=True)
+
+
 def crear_plantilla_evaluacion_xlsx(
     estudiantes_df: pd.DataFrame,
     evaluaciones_df: pd.DataFrame,

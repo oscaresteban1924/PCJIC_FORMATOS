@@ -8,6 +8,7 @@ import pandas as pd
 
 from src.config import COLUMNAS_EVALUACIONES, COLUMNAS_MODULOS, COLUMNAS_SESIONES, usar_postgres
 from src.database.connection import conexion_db, db_execute, read_sql_df
+from src.repositories.audit_repository import registrar_auditoria
 from src.security import ahora_iso
 
 
@@ -248,6 +249,31 @@ def responder_observacion(obs_id: int, respuesta: str, user: Optional[Dict[str, 
 
 def observaciones_curso(curso_id: int) -> pd.DataFrame:
     return read_sql_df("SELECT * FROM curso_observaciones WHERE curso_id=? ORDER BY id DESC", (int(curso_id),))
+
+
+def clonar_curso_a_nuevo_periodo(curso_id: int, nuevo_periodo: str, user: Optional[Dict[str, Any]] = None) -> int:
+    """Clona un curso existente (syllabus, unidades, evaluaciones) a un nuevo periodo académico."""
+    curso = get_curso(int(curso_id))
+    if not curso:
+        raise ValueError("Curso origen no encontrado.")
+
+    payload = safe_json_loads(curso.get("payload_json"), {})
+    datos = payload.get("datos", {}) or {}
+    datos["periodo"] = nuevo_periodo
+
+    datos_clone = {
+        "codigo": curso.get("codigo", ""),
+        "grupo": curso.get("grupo", ""),
+        "asignatura": curso.get("asignatura", ""),
+        "programa": curso.get("programa", ""),
+        "periodo": nuevo_periodo,
+        "profesor": curso.get("profesor", ""),
+        "estado": "Planeación",
+    }
+
+    nuevo_id = upsert_curso(None, datos_clone, payload, user=user)
+    registrar_auditoria("Clonar Curso", f"Clonado ID={curso_id} a nuevo ID={nuevo_id} (Periodo {nuevo_periodo})", user=user)
+    return nuevo_id
 
 
 def versiones_curso(curso_id: int) -> pd.DataFrame:
