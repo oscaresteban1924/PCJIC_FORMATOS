@@ -480,6 +480,56 @@ def excel_bytes_sheets(sheets: Dict[str, pd.DataFrame]) -> bytes:
     return dataframe_to_xlsx_bytes(sheets)
 
 
+def calcular_estadisticas_curso(df_notas: pd.DataFrame, columna_nota: str = "Nota final", corte_aprobacion: float = 3.0) -> Dict[str, Any]:
+    """Calcula indicadores estadísticos (media, mediana, desv_est, min, max, histograma) de las notas."""
+    if df_notas is None or df_notas.empty or columna_nota not in df_notas.columns:
+        return {
+            "total": 0, "media": 0.0, "mediana": 0.0, "desviacion": 0.0,
+            "minimo": 0.0, "maximo": 0.0, "aprueban": 0, "reprueban": 0,
+            "tasa_aprobacion": "0%", "rangos": {"0.0-1.9": 0, "2.0-2.9": 0, "3.0-3.9": 0, "4.0-4.5": 0, "4.6-5.0": 0}
+        }
+
+    notas = pd.to_numeric(df_notas[columna_nota], errors="coerce").dropna()
+    total = len(notas)
+    if total == 0:
+        return {
+            "total": 0, "media": 0.0, "mediana": 0.0, "desviacion": 0.0,
+            "minimo": 0.0, "maximo": 0.0, "aprueban": 0, "reprueban": 0,
+            "tasa_aprobacion": "0%", "rangos": {"0.0-1.9": 0, "2.0-2.9": 0, "3.0-3.9": 0, "4.0-4.5": 0, "4.6-5.0": 0}
+        }
+
+    media = round(float(notas.mean()), 2)
+    mediana = round(float(notas.median()), 2)
+    desviacion = round(float(notas.std()), 2) if total > 1 else 0.0
+    minimo = round(float(notas.min()), 2)
+    maximo = round(float(notas.max()), 2)
+
+    aprueban = int((notas >= corte_aprobacion).sum())
+    reprueban = total - aprueban
+    tasa_apr = f"{(aprueban / total) * 100:.1f}%"
+
+    rangos = {
+        "0.0-1.9 (Deficiente)": int(((notas >= 0) & (notas < 2.0)).sum()),
+        "2.0-2.9 (Insuficiente)": int(((notas >= 2.0) & (notas < 3.0)).sum()),
+        "3.0-3.9 (Aceptable)": int(((notas >= 3.0) & (notas < 4.0)).sum()),
+        "4.0-4.5 (Bueno)": int(((notas >= 4.0) & (notas <= 4.5)).sum()),
+        "4.6-5.0 (Excelente)": int(((notas > 4.5) & (notas <= 5.0)).sum()),
+    }
+
+    return {
+        "total": total,
+        "media": media,
+        "mediana": mediana,
+        "desviacion": desviacion,
+        "minimo": minimo,
+        "maximo": maximo,
+        "aprueban": aprueban,
+        "reprueban": reprueban,
+        "tasa_aprobacion": tasa_apr,
+        "rangos": rangos,
+    }
+
+
 def crear_plantilla_evaluacion_xlsx(
     estudiantes_df: pd.DataFrame,
     evaluaciones_df: pd.DataFrame,

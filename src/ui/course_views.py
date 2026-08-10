@@ -203,7 +203,7 @@ def ui_gc71(st: Any):
     for r in recomendaciones:
         st.info(f"💡 {r}")
 
-    col_btn1, col_btn2, col_btn3 = st.columns(3)
+    col_btn1, col_btn2, col_btn3, col_btn4 = st.columns(4)
     with col_btn1:
         if st.button("Guardar en Expediente Académico", use_container_width=True):
             try:
@@ -234,10 +234,18 @@ def ui_gc71(st: Any):
         except Exception as e:
             st.error(f"Error generando versión HTML: {e}")
 
+    with col_btn4:
+        try:
+            from src.services.calendar_service import build_ics_reminders
+            rem_bytes = build_ics_reminders(evaluaciones_df, datos)
+            st.download_button("⏰ Recordatorios iCal (.ics)", data=rem_bytes, file_name=f"Recordatorios_{codigo or 'Curso'}.ics", mime="text/calendar", use_container_width=True)
+        except Exception as e:
+            st.error(f"Error generando recordatorios: {e}")
+
 
 def ui_gc72(st: Any):
     with st.expander("Qué hace este módulo", expanded=False):
-        st.markdown("Genera el informe académico FD-GC72 usando listado tradicional, notas de corte y análisis descriptivo editable.")
+        st.markdown("Genera el informe académico FD-GC72 usando listado tradicional, notas de corte, análisis descriptivo e indicadores estadísticos.")
 
     st.header("FD-GC72 - Informe académico")
     with st.sidebar:
@@ -254,10 +262,19 @@ def ui_gc72(st: Any):
     with c3:
         fecha_entrega = st.date_input("Fecha de entrega", value=date.today(), format="DD/MM/YYYY", key="gc72_fecha")
 
-    st.subheader("2. Cursos reportados")
+    st.subheader("2. Cursos reportados e Indicadores Estadísticos")
     base = df_vacio(COLUMNAS_GC72, filas=3)
     cursos_editados = st.data_editor(base, hide_index=True, num_rows="dynamic", use_container_width=True, key="tabla_gc72")
     cursos = normalizar_dataframe_gc72(cursos_editados, calcular_porcentajes=calcular)
+
+    if not cursos.empty:
+        from src.services.excel_service import calcular_estadisticas_curso
+        stats = calcular_estadisticas_curso(cursos, columna_nota="Aprueban a la fecha N°")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Estudiantes Matriculados", stats.get("total", 0))
+        m2.metric("Media de Aprobación", f"{stats.get('media', 0)}")
+        m3.metric("Desviación Estándar", stats.get("desviacion", 0))
+        m4.metric("Tasa de Aprobación Global", stats.get("tasa_aprobacion", "0%"))
 
     if cursos.empty:
         st.info("Agregue al menos un curso para activar el análisis y la descarga.")

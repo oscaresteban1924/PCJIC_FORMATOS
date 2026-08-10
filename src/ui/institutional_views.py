@@ -195,7 +195,7 @@ def ui_auditoria_expediente(st: Any):
 
 
 def ui_centro_control(st: Any):
-    st.header("Centro de control estratégico y tableros KPI")
+    st.header("Centro de control estratégico y tableros KPI por Facultad / Programa")
     st.caption("Consolidado ejecutivo de gestión, indicadores de calidad y semáforo de riesgo.")
 
     df_matriz = matriz_riesgo_cursos()
@@ -203,10 +203,22 @@ def ui_centro_control(st: Any):
         st.info("No hay datos registrados en el centro de control.")
         return
 
-    total_cursos = len(df_matriz)
-    promedio_score = round(df_matriz["Score Calidad"].mean(), 1) if "Score Calidad" in df_matriz.columns else 0.0
-    riesgo_alto = int((df_matriz["Nivel Riesgo"] == "Alto").sum()) if "Nivel Riesgo" in df_matriz.columns else 0
-    aprobados = int(df_matriz["Estado"].isin(["Aprobado", "Cerrado"]).sum()) if "Estado" in df_matriz.columns else 0
+    # Filtro jerárquico por programa académico
+    programas = ["Todos los Programas"]
+    if "Programa" in df_matriz.columns:
+        programas += sorted([str(p) for p in df_matriz["Programa"].unique() if str(p).strip()])
+    
+    prog_sel = st.selectbox("Filtrar indicadores por Programa Académico", programas)
+    
+    if prog_sel != "Todos los Programas" and "Programa" in df_matriz.columns:
+        matriz_filtrada = df_matriz[df_matriz["Programa"].astype(str) == prog_sel]
+    else:
+        matriz_filtrada = df_matriz
+
+    total_cursos = len(matriz_filtrada)
+    promedio_score = round(matriz_filtrada["Score Calidad"].mean(), 1) if "Score Calidad" in matriz_filtrada.columns and not matriz_filtrada.empty else 0.0
+    riesgo_alto = int((matriz_filtrada["Nivel Riesgo"] == "Alto").sum()) if "Nivel Riesgo" in matriz_filtrada.columns and not matriz_filtrada.empty else 0
+    aprobados = int(matriz_filtrada["Estado"].isin(["Aprobado", "Cerrado"]).sum()) if "Estado" in matriz_filtrada.columns and not matriz_filtrada.empty else 0
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Cursos Registrados", total_cursos)
@@ -214,8 +226,8 @@ def ui_centro_control(st: Any):
     c3.metric("Expedientes en Riesgo Alto", riesgo_alto, delta_color="inverse")
     c4.metric("Cursos CERRADOS / APROBADOS", aprobados)
 
-    st.subheader("Matriz de Riesgo Operativo")
-    st.dataframe(df_matriz, use_container_width=True, hide_index=True)
+    st.subheader(f"Matriz de Riesgo Operativo ({prog_sel})")
+    st.dataframe(matriz_filtrada, use_container_width=True, hide_index=True)
 
 
 def ui_flujo_aprobaciones(st: Any):
