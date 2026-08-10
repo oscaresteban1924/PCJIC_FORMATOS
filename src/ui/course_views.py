@@ -203,7 +203,7 @@ def ui_gc71(st: Any):
     for r in recomendaciones:
         st.info(f"💡 {r}")
 
-    col_btn1, col_btn2 = st.columns(2)
+    col_btn1, col_btn2, col_btn3 = st.columns(3)
     with col_btn1:
         if st.button("Guardar en Expediente Académico", use_container_width=True):
             try:
@@ -225,6 +225,14 @@ def ui_gc71(st: Any):
             st.download_button("Descargar FD-GC71 Word (.docx)", data=docx_bytes, file_name=f"FD-GC71_{codigo or 'Curso'}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
         except Exception as e:
             st.error(f"Error generando Word: {e}")
+
+    with col_btn3:
+        try:
+            from src.services.docx_service import crear_gc71_html_imprimible
+            html_content = crear_gc71_html_imprimible(datos, sesiones_df, evaluaciones_df)
+            st.download_button("🖨️ Imprimir / PDF (HTML)", data=html_content, file_name=f"FD-GC71_{codigo or 'Curso'}.html", mime="text/html", use_container_width=True)
+        except Exception as e:
+            st.error(f"Error generando versión HTML: {e}")
 
 
 def ui_gc72(st: Any):

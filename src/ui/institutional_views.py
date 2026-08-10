@@ -4,19 +4,17 @@ from typing import Any, Dict
 
 import pandas as pd
 
-from src.config import APP_VERSION, get_app_env, usar_postgres
+from src.config import get_app_env, usar_postgres
 from src.repositories.audit_repository import listar_auditoria, registrar_auditoria
 from src.repositories.course_repository import (
     bloquear_curso,
     cambiar_estado_curso,
     desbloquear_curso,
     esta_bloqueado,
-    get_curso,
     listar_cursos_visibles,
 )
 from src.repositories.parameter_repository import actualizar_parametro, obtener_parametro
 from src.repositories.subject_repository import (
-    get_asignatura_base,
     guardar_asignatura_base,
     listar_asignaturas_base,
 )
@@ -197,11 +195,27 @@ def ui_auditoria_expediente(st: Any):
 
 
 def ui_centro_control(st: Any):
-    st.header("Centro de control estratégico")
-    st.markdown("Tableros consolidados y matriz de riesgo operativo.")
+    st.header("Centro de control estratégico y tableros KPI")
+    st.caption("Consolidado ejecutivo de gestión, indicadores de calidad y semáforo de riesgo.")
+
     df_matriz = matriz_riesgo_cursos()
-    if not df_matriz.empty:
-        st.dataframe(df_matriz, use_container_width=True, hide_index=True)
+    if df_matriz.empty:
+        st.info("No hay datos registrados en el centro de control.")
+        return
+
+    total_cursos = len(df_matriz)
+    promedio_score = round(df_matriz["Score Calidad"].mean(), 1) if "Score Calidad" in df_matriz.columns else 0.0
+    riesgo_alto = int((df_matriz["Nivel Riesgo"] == "Alto").sum()) if "Nivel Riesgo" in df_matriz.columns else 0
+    aprobados = int(df_matriz["Estado"].isin(["Aprobado", "Cerrado"]).sum()) if "Estado" in df_matriz.columns else 0
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total Cursos Registrados", total_cursos)
+    c2.metric("Puntuación Promedio de Calidad", f"{promedio_score}%")
+    c3.metric("Expedientes en Riesgo Alto", riesgo_alto, delta_color="inverse")
+    c4.metric("Cursos CERRADOS / APROBADOS", aprobados)
+
+    st.subheader("Matriz de Riesgo Operativo")
+    st.dataframe(df_matriz, use_container_width=True, hide_index=True)
 
 
 def ui_flujo_aprobaciones(st: Any):
@@ -315,8 +329,36 @@ def ui_parametros(st: Any):
 
 
 def ui_backup(st: Any):
-    st.header("Copias y restauración de seguridad")
-    st.info("Copia de respaldo del sistema en formato de base de datos local / JSON.")
+    st.header("Copias y restauración de seguridad (Backup System)")
+    st.caption("Genere respaldos completos en formato JSON e impórtelos con 1 solo clic.")
+
+    tab1, tab2 = st.tabs(["Generar Copia de Seguridad", "Restaurar Backup"])
+
+    with tab1:
+        st.subheader("📥 Exportar Backup del Sistema")
+        st.write("Esta copia incluye todos los usuarios, cursos, asignaturas base, auditoría y parámetros.")
+
+        from src.services.export_service import generar_backup_sistema_json
+        if st.button("Preparar archivo de respaldo", use_container_width=True):
+            try:
+                json_bytes = generar_backup_sistema_json()
+                from datetime import datetime
+                fname = f"Backup_PCJIC_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                st.download_button("Descargar Copia de Seguridad (.json)", data=json_bytes, file_name=fname, mime="application/json", use_container_width=True)
+            except Exception as e:
+                st.error(f"Error generando backup: {e}")
+
+    with tab2:
+        st.subheader("📤 Restaurar desde un archivo JSON")
+        arch_subido = st.file_uploader("Cargar archivo de respaldo .json", type=["json"])
+        if arch_subido is not None and st.button("Restaurar base de datos", use_container_width=True):
+            from src.services.export_service import restaurar_backup_sistema_json
+            ok, msg = restaurar_backup_sistema_json(arch_subido.getvalue())
+            if ok:
+                st.success(f"✅ {msg}")
+                st.rerun()
+            else:
+                st.error(f"❌ {msg}")
 
 
 def ui_diagnostico_productivo(st: Any):
@@ -327,5 +369,23 @@ def ui_diagnostico_productivo(st: Any):
 
 def ui_auditoria(st: Any):
     st.header("Auditoría de seguridad y eventos")
+    st.caption("Buscador avanzado y bitácora de eventos administrativos.")
+
     df_aud = listar_auditoria()
-    st.dataframe(df_aud, use_container_width=True, hide_index=True)
+    if df_aud.empty:
+        st.info("No hay eventos registrados en la bitácora de auditoría.")
+        return
+
+    col1, col2 = st.columns(2)
+    with col1:
+        filtro_usuario = st.text_input("Filtrar por usuario")
+    with col2:
+        filtro_accion = st.text_input("Filtrar por acción / evento")
+
+    filtrado = df_aud.copy()
+    if filtro_usuario.strip():
+        filtrado = filtrado[filtrado["usuario"].astype(str).str.contains(filtro_usuario.strip(), case=False, na=False)]
+    if filtro_accion.strip():
+        filtrado = filtrado[filtrado["accion"].astype(str).str.contains(filtro_accion.strip(), case=False, na=False)]
+
+    st.dataframe(filtrado, use_container_width=True, hide_index=True)

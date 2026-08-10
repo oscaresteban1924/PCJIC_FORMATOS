@@ -118,3 +118,71 @@ def _hash_expediente(curso_id: int) -> Tuple[str, Dict[str, Any]]:
     digest = hashlib.sha256(json.dumps(data, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
     data["sha256_expediente"] = digest
     return digest, data
+
+
+def generar_backup_sistema_json() -> bytes:
+    """Genera un archivo JSON comprimido con la copia completa del sistema."""
+    from src.database.connection import read_sql_df
+
+    tables = ["usuarios", "cursos", "evidencias", "artefactos", "parametros_app", "asignaturas_base", "auditoria"]
+    backup_data: Dict[str, Any] = {
+        "metadatos": {
+            "app_version": APP_VERSION,
+            "fecha_creacion": ahora_iso(),
+            "tablas_respaldadas": tables,
+        },
+        "datos": {},
+    }
+
+    for table in tables:
+        try:
+            df = read_sql_df(f"SELECT * FROM {table}")
+            backup_data["datos"][table] = df.to_dict(orient="records")
+        except Exception:
+            backup_data["datos"][table] = []
+
+    raw = json.dumps(backup_data, ensure_ascii=False, indent=2, default=str)
+    return raw.encode("utf-8")
+
+
+def restaurar_backup_sistema_json(json_bytes: bytes) -> Tuple[bool, str]:
+    """Restaura el sistema a partir de una copia de seguridad JSON."""
+    from src.database.connection import db_execute
+
+    try:
+        content = json.loads(json_bytes.decode("utf-8"))
+        datos = content.get("datos", {})
+        if not datos:
+            return False, "El archivo de respaldo no contiene datos válidos."
+
+        # Restaurar usuarios
+        if "usuarios" in datos:
+            for u in datos["usuarios"]:
+                try:
+                    db_execute(
+                        "INSERT INTO usuarios (usuario, password_hash, salt, rol, nombre_completo, email, estado, debe_cambiar_clave) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        (u.get("usuario"), u.get("password_hash"), u.get("salt"), u.get("rol"), u.get("nombre_completo"), u.get("email"), u.get("estado", "activo"), u.get("debe_cambiar_clave", 0)),
+                    )
+                except Exception:
+                    db_execute(
+                        "UPDATE usuarios SET rol=?, nombre_completo=?, email=? WHERE usuario=?",
+                        (u.get("rol"), u.get("nombre_completo"), u.get("email"), u.get("usuario")),
+                    )
+
+        # Restaurar cursos
+        if "cursos" in datos:
+            for c in datos["cursos"]:
+                try:
+                    db_execute(
+                        "INSERT INTO cursos (codigo, grupo, asignatura, programa, periodo, profesor, estado, payload_json, creado_en, actualizado_en) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (c.get("codigo"), c.get("grupo"), c.get("asignatura"), c.get("programa"), c.get("periodo"), c.get("profesor"), c.get("estado"), c.get("payload_json"), c.get("creado_en"), c.get("actualizado_en")),
+                    )
+                except Exception:
+                    pass
+
+        return True, "Copia de seguridad restaurada exitosamente."
+    except Exception as e:
+        return False, f"Error durante la restauración: {str(e)}"
+

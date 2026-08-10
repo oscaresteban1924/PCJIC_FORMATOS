@@ -1,163 +1,32 @@
 from __future__ import annotations
 
 import io
+import os
 import re
-from datetime import date, datetime
+from datetime import date
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+import docx
 import pandas as pd
-from docx import Document
-from docx.enum.section import WD_ORIENT
-from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
+from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.oxml import OxmlElement
-from docx.oxml.ns import qn
+from docx.oxml import OxmlElement, parse_xml
+from docx.oxml.ns import nsdecls, qn
 from docx.shared import Inches, Pt, RGBColor
 
 from src.config import (
     COLUMNAS_EVALUACIONES,
     COLUMNAS_GC72,
+    COLUMNAS_HORARIOS,
+    COLUMNAS_MODULOS,
     COLUMNAS_SESIONES,
-    LOGO_ICONTEC,
-    LOGO_POLI,
     MAPA_TABLA_WORD_GC72,
     NUMERICAS_ENTERAS_GC72,
     NUMERICAS_PORCENTAJE_GC72,
     PREFORMAS_GC72,
+    TEMPLATE_GC71,
     TEMPLATE_GC72,
 )
-
-
-def set_cell_width(cell, width_inches: float):
-    cell.width = Inches(width_inches)
-    tc_pr = cell._tc.get_or_add_tcPr()
-    tc_w = tc_pr.find(qn("w:tcW"))
-    if tc_w is None:
-        tc_w = OxmlElement("w:tcW")
-        tc_pr.append(tc_w)
-    tc_w.set(qn("w:w"), str(int(width_inches * 1440)))
-    tc_w.set(qn("w:type"), "dxa")
-
-
-def fijar_anchos_tabla(tabla, anchos: List[float]):
-    tabla.autofit = False
-    for row in tabla.rows:
-        for idx, width in enumerate(anchos):
-            if idx < len(row.cells):
-                set_cell_width(row.cells[idx], width)
-
-
-def shade_cell(cell, fill: str):
-    tc_pr = cell._tc.get_or_add_tcPr()
-    shd = tc_pr.find(qn("w:shd"))
-    if shd is None:
-        shd = OxmlElement("w:shd")
-        tc_pr.append(shd)
-    shd.set(qn("w:fill"), fill.replace("#", ""))
-
-
-def set_cell_text(
-    cell,
-    texto: str,
-    font_size: float = 8.0,
-    bold: bool = False,
-    align=WD_ALIGN_PARAGRAPH.CENTER,
-    color: Optional[str] = None,
-):
-    cell.text = ""
-    parrafo = cell.paragraphs[0]
-    parrafo.alignment = align
-    parrafo.paragraph_format.space_after = Pt(0)
-    run = parrafo.add_run(str(texto) if texto is not None else "")
-    run.bold = bold
-    run.font.size = Pt(font_size)
-    if color:
-        color = color.replace("#", "")
-        run.font.color.rgb = RGBColor.from_string(color)
-    cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
-
-
-def add_paragraph_in_cell(cell, texto: str, font_size: float = 8.5, bold: bool = False, align=WD_ALIGN_PARAGRAPH.JUSTIFY):
-    p = cell.add_paragraph()
-    p.alignment = align
-    p.paragraph_format.space_after = Pt(2)
-    p.paragraph_format.line_spacing = 1.05
-    r = p.add_run(texto)
-    r.bold = bold
-    r.font.size = Pt(font_size)
-    return p
-
-
-def set_section_text(cell, titulo: str, texto: str, font_size: float = 8.5):
-    cell.text = ""
-    p1 = cell.paragraphs[0]
-    p1.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r1 = p1.add_run(titulo)
-    r1.bold = True
-    r1.font.size = Pt(9)
-    if texto:
-        for parte in str(texto).split("\n"):
-            if parte.strip():
-                add_paragraph_in_cell(cell, parte.strip(), font_size=font_size)
-
-
-def set_label_value(cell, etiqueta: str, valor: str):
-    cell.text = ""
-    parrafo = cell.paragraphs[0]
-    parrafo.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    r1 = parrafo.add_run(etiqueta)
-    r1.bold = True
-    r1.font.size = Pt(10)
-    r2 = parrafo.add_run(f" {valor}" if valor else "")
-    r2.font.size = Pt(10)
-    cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
-
-
-def aplicar_bordes_tabla(tabla, color="000000", size="4"):
-    tbl = tabla._tbl
-    tbl_pr = tbl.tblPr
-    borders = tbl_pr.first_child_found_in("w:tblBorders")
-    if borders is None:
-        borders = OxmlElement("w:tblBorders")
-        tbl_pr.append(borders)
-    for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
-        tag = f"w:{edge}"
-        element = borders.find(qn(tag))
-        if element is None:
-            element = OxmlElement(tag)
-            borders.append(element)
-        element.set(qn("w:val"), "single")
-        element.set(qn("w:sz"), size)
-        element.set(qn("w:space"), "0")
-        element.set(qn("w:color"), color)
-
-
-def remover_parrafo(paragraph):
-    p = paragraph._element
-    p.getparent().remove(p)
-    paragraph._p = paragraph._element = None
-
-
-def formato_entero(valor: Any) -> str:
-    if valor is None or pd.isna(valor) or str(valor).strip() == "":
-        return ""
-    try:
-        return str(int(round(float(valor))))
-    except Exception:
-        return str(valor)
-
-
-def formato_porcentaje(valor: Any) -> str:
-    if valor is None or pd.isna(valor) or str(valor).strip() == "":
-        return ""
-    try:
-        val = float(valor)
-        if val <= 1.0 and val > 0:
-            val = val * 100
-        return f"{val:.1f}%".replace(".0%", "%")
-    except Exception:
-        txt = str(valor).strip()
-        return txt if txt.endswith("%") else f"{txt}%"
 
 
 def porcentaje(numerador: Any, denominador: Any) -> str:
@@ -171,21 +40,166 @@ def porcentaje(numerador: Any, denominador: Any) -> str:
         return "0%"
 
 
-def limpiar_df(df: pd.DataFrame, columnas: List[str]) -> pd.DataFrame:
-    if df is None:
-        return pd.DataFrame(columns=columnas)
-    res = df.copy()
-    for col in columnas:
-        if col not in res.columns:
-            res[col] = ""
-    return res[columnas]
+def formato_entero(valor: Any) -> str:
+    if valor is None or pd.isna(valor) or str(valor).strip() == "":
+        return "0"
+    try:
+        return str(int(round(float(valor))))
+    except Exception:
+        return str(valor)
 
 
-def normalizar_dataframe_gc72(df: pd.DataFrame, calcular_porcentajes: bool = True) -> pd.DataFrame:
-    df = limpiar_df(df, COLUMNAS_GC72)
-    if calcular_porcentajes:
-        for idx, row in df.iterrows():
-            matriculados = row.get("Estudiantes matriculados", "")
+def formato_porcentaje(valor: Any) -> str:
+    if valor is None or pd.isna(valor) or str(valor).strip() == "":
+        return "0%"
+    txt = str(valor).strip()
+    if txt.endswith("%"):
+        return txt
+    try:
+        val = float(txt)
+        if val <= 1.0 and val > 0:
+            val = val * 100
+        return f"{val:.1f}%".replace(".0%", "%")
+    except Exception:
+        return txt
+
+
+def shade_cell(cell: Any, color_hex: str):
+    shading_elm = parse_xml(f'<w:shd {nsdecls("w")} w:fill="{color_hex}"/>')
+    cell._tc.get_or_add_tcPr().append(shading_elm)
+
+
+def set_cell_width(cell: Any, width_in_inches: float):
+    cell.width = Inches(width_in_inches)
+    tcPr = cell._tc.get_or_add_tcPr()
+    tcW = parse_xml(f'<w:tcW {nsdecls("w")} w:w="{int(width_in_inches * 1440)}" w:type="dxa"/>')
+    tcPr.append(tcW)
+
+
+def fijar_anchos_tabla(table: Any, col_widths_in_inches: List[float]):
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    for row in table.rows:
+        for idx, width in enumerate(col_widths_in_inches):
+            if idx < len(row.cells):
+                set_cell_width(row.cells[idx], width)
+
+
+def aplicar_bordes_tabla(table: Any, color_hex: str = "D3D3D3"):
+    tblPr = table._tbl.tblPr
+    borders = parse_xml(
+        f'<w:tblBorders {nsdecls("w")}>'
+        f'<w:top w:val="single" w:sz="4" w:space="0" w:color="{color_hex}"/>'
+        f'<w:left w:val="none"/>'
+        f'<w:bottom w:val="single" w:sz="6" w:space="0" w:color="002060"/>'
+        f'<w:right w:val="none"/>'
+        f'<w:insideH w:val="single" w:sz="4" w:space="0" w:color="{color_hex}"/>'
+        f'<w:insideV w:val="none"/>'
+        f'</w:tblBorders>'
+    )
+    tblPr.append(borders)
+
+
+def set_cell_text(cell: Any, text: str, bold: bool = False, italic: bool = False, font_size_pt: float = 9.5, color_rgb: Tuple[int, int, int] = (0, 0, 0), align: WD_ALIGN_PARAGRAPH = WD_ALIGN_PARAGRAPH.LEFT):
+    cell.text = ""
+    p = cell.paragraphs[0]
+    p.alignment = align
+    p.paragraph_format.space_before = Pt(2)
+    p.paragraph_format.space_after = Pt(2)
+    p.paragraph_format.line_spacing = 1.05
+    run = p.add_run(text)
+    run.bold = bold
+    run.italic = italic
+    run.font.size = Pt(font_size_pt)
+    run.font.color.rgb = RGBColor(*color_rgb)
+    cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+
+
+def add_paragraph_in_cell(cell: Any, text: str = "", bold: bool = False, italic: bool = False, font_size_pt: float = 9.5, color_rgb: Tuple[int, int, int] = (0, 0, 0), space_after: float = 2):
+    p = cell.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    p.paragraph_format.space_before = Pt(1)
+    p.paragraph_format.space_after = Pt(space_after)
+    p.paragraph_format.line_spacing = 1.05
+    run = p.add_run(text)
+    run.bold = bold
+    run.italic = italic
+    run.font.size = Pt(font_size_pt)
+    run.font.color.rgb = RGBColor(*color_rgb)
+    return p
+
+
+def remover_parrafo(p: Any):
+    p._element.getparent().remove(p._element)
+
+
+def set_label_value(cell: Any, label: str, value: str, font_size_pt: float = 9.5):
+    cell.text = ""
+    p = cell.paragraphs[0]
+    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    p.paragraph_format.space_before = Pt(2)
+    p.paragraph_format.space_after = Pt(2)
+    p.paragraph_format.line_spacing = 1.05
+
+    run_l = p.add_run(f"{label}: ")
+    run_l.bold = True
+    run_l.font.size = Pt(font_size_pt)
+    run_l.font.color.rgb = RGBColor(0, 32, 96)
+
+    run_v = p.add_run(str(value or ""))
+    run_v.bold = False
+    run_v.font.size = Pt(font_size_pt)
+    run_v.font.color.rgb = RGBColor(30, 30, 30)
+    cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+
+
+def set_section_text(cell: Any, text: str, font_size_pt: float = 9.5):
+    cell.text = ""
+    lineas = str(text or "").split("\n")
+    first = True
+    for line in lineas:
+        txt = line.strip()
+        if not txt:
+            continue
+        p = cell.paragraphs[0] if first else cell.add_paragraph()
+        first = False
+        p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        p.paragraph_format.space_before = Pt(1)
+        p.paragraph_format.space_after = Pt(2)
+        p.paragraph_format.line_spacing = 1.05
+        run = p.add_run(txt)
+        run.font.size = Pt(font_size_pt)
+        run.font.color.rgb = RGBColor(30, 30, 30)
+    cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
+
+
+def normalizar_dataframe_gc72(df_input: pd.DataFrame, calcular_porcentajes: bool = True) -> pd.DataFrame:
+    df = df_input.copy()
+    for col in COLUMNAS_GC72:
+        if col not in df.columns:
+            df[col] = ""
+
+    for idx, row in df.iterrows():
+        asig = str(row.get("Asignatura", "")).strip()
+        cod = str(row.get("Código", "")).strip()
+        grp = str(row.get("Grupo", "")).strip()
+
+        if not asig and not cod and not grp:
+            continue
+
+        matriculados = row.get("Estudiantes matriculados", 0)
+        try:
+            matriculados = int(round(float(matriculados))) if matriculados != "" else 0
+        except Exception:
+            matriculados = 0
+
+        for col in NUMERICAS_ENTERAS_GC72:
+            val = row.get(col, 0)
+            try:
+                df.at[idx, col] = int(round(float(val))) if val != "" else 0
+            except Exception:
+                df.at[idx, col] = 0
+
+        if calcular_porcentajes:
             df.at[idx, "Desertaron %"] = porcentaje(row.get("Desertaron N°", ""), matriculados)
             df.at[idx, "Aprueban evaluación parcial %"] = porcentaje(row.get("Aprueban evaluación parcial N°", ""), matriculados)
             df.at[idx, "Reprueban evaluación parcial %"] = porcentaje(row.get("Reprueban evaluación parcial N°", ""), matriculados)
@@ -250,329 +264,14 @@ def construir_analisis(cursos: pd.DataFrame, analisis_por_curso: Dict[str, Dict[
         nombre = str(row.get("Asignatura", "")).strip() or "Curso sin nombre"
         codigo = str(row.get("Código", "")).strip()
         grupo = str(row.get("Grupo", "")).strip()
-        detalles = []
-        if codigo:
-            detalles.append(f"Código {codigo}")
-        if grupo:
-            detalles.append(f"Grupo {grupo}")
-        encabezado = f"{nombre} ({' - '.join(detalles)})" if detalles else nombre
         data = analisis_por_curso.get(key, {})
         bloques.append({
-            "titulo": encabezado,
+            "titulo": f"{nombre} | Código: {codigo} | Grupo: {grupo}",
             "positivos": data.get("positivos", ""),
             "inconvenientes": data.get("inconvenientes", ""),
             "propuestas": data.get("propuestas", ""),
         })
     return bloques
-
-
-def crear_informe_gc72_docx(docente: str, periodo: str, fecha_entrega: date | str, cursos: pd.DataFrame, bloques_analisis: List[Dict[str, str]]) -> bytes:
-    if not TEMPLATE_GC72.exists():
-        raise FileNotFoundError(f"No se encontró la plantilla: {TEMPLATE_GC72}")
-    doc = Document(str(TEMPLATE_GC72))
-    cursos_norm = normalizar_dataframe_gc72(cursos, calcular_porcentajes=False)
-
-    datos = doc.tables[0]
-    set_label_value(datos.rows[0].cells[0], "DOCENTE:", docente)
-    set_label_value(datos.rows[1].cells[0], "PERÍODO ACADÉMICO:", periodo)
-    fecha_texto = fecha_entrega.strftime("%d/%m/%Y") if hasattr(fecha_entrega, "strftime") else str(fecha_entrega)
-    set_label_value(datos.rows[2].cells[0], "FECHA DE ENTREGA:", fecha_texto)
-
-    tabla = doc.tables[1]
-    fijar_anchos_tabla(tabla, [0.62, 0.55, 1.38, 0.72, 0.68, 0.90, 0.43, 0.38, 0.55, 0.38, 0.55, 0.40, 0.50, 0.38, 0.50, 0.38])
-    fila_inicio = 3
-    filas_necesarias = max(8, len(cursos_norm))
-    while len(tabla.rows) < fila_inicio + filas_necesarias:
-        tabla.add_row()
-
-    for i in range(filas_necesarias):
-        row_cells = tabla.rows[fila_inicio + i].cells
-        if i < len(cursos_norm):
-            registro = cursos_norm.iloc[i]
-            for j, col in enumerate(MAPA_TABLA_WORD_GC72):
-                valor = registro.get(col, "")
-                if col in NUMERICAS_ENTERAS_GC72:
-                    texto = formato_entero(valor)
-                elif col in NUMERICAS_PORCENTAJE_GC72:
-                    texto = formato_porcentaje(valor)
-                    if j >= 7:
-                        texto = texto.replace("%", "")
-                else:
-                    texto = "" if pd.isna(valor) else str(valor).strip()
-                set_cell_text(row_cells[j], texto, font_size=6.8 if j >= 6 else 7.2)
-        else:
-            for j in range(min(len(row_cells), len(MAPA_TABLA_WORD_GC72))):
-                set_cell_text(row_cells[j], "", font_size=7.5)
-
-    firma = None
-    for p in doc.paragraphs:
-        if p.text.strip().startswith("Firma:"):
-            firma = p
-            break
-    if firma is None:
-        firma = doc.add_paragraph("Firma: ___________________")
-
-    agregar_parrafo_antes(firma, "")
-    for bloque in bloques_analisis:
-        titulo = bloque.get("titulo", "Curso")
-        p_titulo = firma.insert_paragraph_before()
-        p_titulo.paragraph_format.space_before = Pt(4)
-        p_titulo.paragraph_format.space_after = Pt(2)
-        run = p_titulo.add_run(titulo)
-        run.bold = True
-        run.font.size = Pt(10)
-
-        positivos = bloque.get("positivos", "").strip() or "Sin observaciones específicas para este apartado."
-        inconvenientes = bloque.get("inconvenientes", "").strip() or "No se reportan inconvenientes relevantes para el periodo informado."
-        propuestas = bloque.get("propuestas", "").strip() or "Mantener seguimiento y retroalimentación permanente para sostener el avance del curso."
-
-        agregar_parrafo_antes(firma, f"1. Aspectos positivos: {positivos}", bold_prefix="1. Aspectos positivos:")
-        agregar_parrafo_antes(firma, f"2. Inconvenientes presentados: {inconvenientes}", bold_prefix="2. Inconvenientes presentados:")
-        agregar_parrafo_antes(firma, f"3. Propuestas metodológicas: {propuestas}", bold_prefix="3. Propuestas metodológicas:")
-
-    buffer = io.BytesIO()
-    doc.save(buffer)
-    return buffer.getvalue()
-
-
-def configurar_documento_gc71(doc: Document):
-    section = doc.sections[0]
-    section.orientation = WD_ORIENT.PORTRAIT
-    section.page_width = Inches(8.27)
-    section.page_height = Inches(11.69)
-    section.top_margin = Inches(0.35)
-    section.bottom_margin = Inches(0.35)
-    section.left_margin = Inches(0.35)
-    section.right_margin = Inches(0.35)
-    styles = doc.styles
-    styles["Normal"].font.name = "Arial"
-    styles["Normal"].font.size = Pt(8.5)
-
-
-def agregar_tabla_header_gc71(doc: Document):
-    table = doc.add_table(rows=2, cols=3)
-    table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    table.autofit = False
-    aplicar_bordes_tabla(table)
-    widths = [2.55, 3.9, 1.75]
-    for row in table.rows:
-        for i, w in enumerate(widths):
-            set_cell_width(row.cells[i], w)
-    logo_cell = table.cell(0, 0).merge(table.cell(1, 0))
-    title_cell = table.cell(0, 1).merge(table.cell(1, 1))
-    if LOGO_POLI.exists():
-        logo_cell.text = ""
-        p = logo_cell.paragraphs[0]
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        p.add_run().add_picture(str(LOGO_POLI), width=Inches(1.55))
-    else:
-        set_cell_text(logo_cell, "POLITÉCNICO COLOMBIANO\nJAIME ISAZA CADAVID", 8, True)
-    set_cell_text(title_cell, "GUÍA DIDÁCTICA DE ASIGNATURA Y\nCONCERTACIÓN DE EVALUACIÓN", 12, True)
-    set_cell_text(table.cell(0, 2), "Código: FD-GC71", 10, False)
-    set_cell_text(table.cell(1, 2), "Versión: 09", 10, True)
-    return table
-
-
-def agregar_fila_seccion(table, titulo: str, cols: int, fill="FFF2CC"):
-    row = table.add_row()
-    cell = row.cells[0].merge(row.cells[cols - 1])
-    shade_cell(cell, fill)
-    set_cell_text(cell, titulo, 8.5, True)
-    return row
-
-
-def agregar_tabla_identificacion_gc71(doc: Document, datos: Dict[str, str]):
-    doc.add_paragraph()
-    t = doc.add_table(rows=0, cols=4)
-    t.alignment = WD_TABLE_ALIGNMENT.CENTER
-    t.autofit = False
-    aplicar_bordes_tabla(t)
-    widths = [2.2, 2.05, 1.85, 2.0]
-    agregar_fila_seccion(t, "1. IDENTIFICACIÓN DE LA ASIGNATURA", 4)
-    campos = [
-        ("PROGRAMA ACADÉMICO", datos.get("programa", "")),
-        ("ASIGNATURA", datos.get("asignatura", "")),
-        ("CÓDIGO", datos.get("codigo", "")),
-        ("ÁREA DE FORMACIÓN", datos.get("area", "")),
-        ("PRERREQUISITO(S)", datos.get("prerrequisitos", "")),
-        ("CORREQUISITO(S)", datos.get("correquisitos", "")),
-    ]
-    for etiqueta, valor in campos:
-        row = t.add_row()
-        c0 = row.cells[0].merge(row.cells[1])
-        c1 = row.cells[2].merge(row.cells[3])
-        set_cell_text(c0, etiqueta, 8.3, True, align=WD_ALIGN_PARAGRAPH.LEFT)
-        set_cell_text(c1, valor, 8.3, False, align=WD_ALIGN_PARAGRAPH.LEFT)
-    row = t.add_row()
-    set_cell_text(row.cells[0], "TIPO DE ASIGNATURA", 8.3, True, align=WD_ALIGN_PARAGRAPH.LEFT)
-    tipo = datos.get("tipo_asignatura", "Teórico-práctica")
-    set_cell_text(row.cells[1], f"{'☒' if tipo == 'Teórica' else '☐'} Teórica", 8.3)
-    set_cell_text(row.cells[2], f"{'☒' if tipo == 'Teórico-práctica' else '☐'} Teórico-práctica", 8.3)
-    set_cell_text(row.cells[3], f"{'☒' if tipo == 'Práctica' else '☐'} Práctica", 8.3)
-    row = t.add_row()
-    set_cell_text(row.cells[0].merge(row.cells[1]), "NÚMERO DE CRÉDITOS", 8.3, True, align=WD_ALIGN_PARAGRAPH.LEFT)
-    set_cell_text(row.cells[2].merge(row.cells[3]), datos.get("creditos", ""), 8.3, align=WD_ALIGN_PARAGRAPH.LEFT)
-    row = t.add_row()
-    set_cell_text(row.cells[0], "DISTRIBUCIÓN HORARIA SEMANAL", 8.3, True, align=WD_ALIGN_PARAGRAPH.LEFT)
-    set_cell_text(row.cells[1], f"HTP: {datos.get('htp', '')}", 8.3)
-    set_cell_text(row.cells[2], f"HTI: {datos.get('hti', '')}", 8.3)
-    set_cell_text(row.cells[3], f"Total: {datos.get('ht_total', '')}", 8.3)
-    for etiqueta, valor in [
-        ("PROFESOR", datos.get("profesor", "")),
-        ("CORREO ELECTRÓNICO", datos.get("correo", "")),
-        ("GRUPO", datos.get("grupo", "")),
-        ("PERÍODO ACADÉMICO", datos.get("periodo", "")),
-    ]:
-        row = t.add_row()
-        c0 = row.cells[0].merge(row.cells[1])
-        c1 = row.cells[2].merge(row.cells[3])
-        set_cell_text(c0, etiqueta, 8.3, True, align=WD_ALIGN_PARAGRAPH.LEFT)
-        set_cell_text(c1, valor, 8.3, align=WD_ALIGN_PARAGRAPH.LEFT)
-    for row in t.rows:
-        for i, w in enumerate(widths):
-            if i < len(row.cells):
-                set_cell_width(row.cells[i], w)
-    return t
-
-
-def agregar_seccion_texto_gc71(doc: Document, numero_titulo: str, texto: str):
-    t = doc.add_table(rows=2, cols=1)
-    t.alignment = WD_TABLE_ALIGNMENT.CENTER
-    aplicar_bordes_tabla(t)
-    shade_cell(t.rows[0].cells[0], "FFF2CC")
-    set_cell_text(t.rows[0].cells[0], numero_titulo, 8.5, True)
-    set_cell_text(t.rows[1].cells[0], texto, 8.2, align=WD_ALIGN_PARAGRAPH.LEFT)
-    set_cell_width(t.rows[0].cells[0], 8.1)
-    set_cell_width(t.rows[1].cells[0], 8.1)
-    return t
-
-
-def agregar_contenidos_gc71(doc: Document, sesiones_df: pd.DataFrame):
-    t = doc.add_table(rows=0, cols=5)
-    t.alignment = WD_TABLE_ALIGNMENT.CENTER
-    t.autofit = False
-    aplicar_bordes_tabla(t)
-    widths = [0.75, 1.0, 2.45, 1.95, 1.95]
-    agregar_fila_seccion(t, "7. CONTENIDOS TEMÁTICOS DE LA ASIGNATURA", 5)
-    sesiones = limpiar_df(sesiones_df, COLUMNAS_SESIONES)
-    for unidad, dfu in sesiones.groupby("Unidad", sort=False):
-        agregar_fila_seccion(t, str(unidad).upper(), 5, fill="FFF2CC")
-        row = t.add_row()
-        headers = ["N° sesión", "Fecha", "Contenido por desarrollar", "Descripción del trabajo presencial", "Descripción trabajo independiente"]
-        for i, h in enumerate(headers):
-            shade_cell(row.cells[i], "F2F2F2")
-            set_cell_text(row.cells[i], h, 7.5, True)
-        for _, s in dfu.iterrows():
-            row = t.add_row()
-            fecha = s.get("Fecha")
-            if hasattr(fecha, "strftime"):
-                fecha_txt = fecha.strftime("%d/%m/%Y")
-            else:
-                fecha_txt = str(fecha)
-            values = [
-                s.get("N° sesión", ""),
-                fecha_txt,
-                s.get("Contenido por desarrollar", ""),
-                s.get("Descripción del trabajo presencial", ""),
-                s.get("Descripción trabajo independiente", ""),
-            ]
-            for i, v in enumerate(values):
-                set_cell_text(row.cells[i], v, 7.2 if i >= 2 else 7.0, align=WD_ALIGN_PARAGRAPH.LEFT if i >= 2 else WD_ALIGN_PARAGRAPH.CENTER)
-    for row in t.rows:
-        for i, w in enumerate(widths):
-            if i < len(row.cells):
-                set_cell_width(row.cells[i], w)
-    return t
-
-
-def agregar_evaluaciones_gc71(doc: Document, asignatura: str, grupo: str, evaluaciones_df: pd.DataFrame):
-    t = doc.add_table(rows=0, cols=4)
-    t.alignment = WD_TABLE_ALIGNMENT.CENTER
-    t.autofit = False
-    aplicar_bordes_tabla(t)
-    widths = [1.45, 4.15, 0.9, 1.6]
-    agregar_fila_seccion(t, "11. EVALUACIÓN DE LA ASIGNATURA", 4)
-    row = t.add_row()
-    c0 = row.cells[0].merge(row.cells[1])
-    c1 = row.cells[2].merge(row.cells[3])
-    set_cell_text(c0, f"ASIGNATURA: {asignatura}", 7.6, True, align=WD_ALIGN_PARAGRAPH.LEFT)
-    set_cell_text(c1, f"GRUPO: {grupo}", 7.6, True, align=WD_ALIGN_PARAGRAPH.LEFT)
-    row = t.add_row()
-    headers = ["TIPO DE EVALUACIÓN°", "PROCEDIMIENTO DE EVALUACIÓN\n(Descripción de la actividad evaluativa)", "VALOR (%)", "FECHA DE\nREALIZACIÓN"]
-    for i, h in enumerate(headers):
-        shade_cell(row.cells[i], "FFF2CC")
-        set_cell_text(row.cells[i], h, 7.2, True)
-    evaluaciones = limpiar_df(evaluaciones_df, COLUMNAS_EVALUACIONES)
-    for _, ev in evaluaciones.iterrows():
-        row = t.add_row()
-        fecha = ev.get("Fecha de realización")
-        if hasattr(fecha, "strftime"):
-            fecha_txt = fecha.strftime("%d/%m/%Y")
-        else:
-            fecha_txt = str(fecha)
-        vals = [ev.get("Tipo de evaluación", ""), ev.get("Procedimiento de evaluación", ""), ev.get("Valor (%)", ""), fecha_txt]
-        for i, v in enumerate(vals):
-            set_cell_text(row.cells[i], v, 7.2, align=WD_ALIGN_PARAGRAPH.LEFT if i in [0, 1] else WD_ALIGN_PARAGRAPH.CENTER)
-    for row in t.rows:
-        for i, w in enumerate(widths):
-            if i < len(row.cells):
-                set_cell_width(row.cells[i], w)
-    return t
-
-
-def agregar_evidencia_y_control_gc71(doc: Document, datos: Dict[str, str], representantes_df: pd.DataFrame):
-    t = doc.add_table(rows=0, cols=3)
-    t.alignment = WD_TABLE_ALIGNMENT.CENTER
-    aplicar_bordes_tabla(t)
-    agregar_fila_seccion(t, "12. EVIDENCIA DE PRESENTACIÓN DE LA GUÍA Y CONCERTACIÓN DE EVALUACIÓN AL GRUPO DE ESTUDIANTES", 3)
-    row = t.add_row()
-    cell = row.cells[0].merge(row.cells[2])
-    set_cell_text(cell, "Se deja constancia de socialización de la Guía Didáctica de Asignatura y aprobación de la concertación de evaluación según el reglamento estudiantil; para ello firman tres estudiantes en representación del grupo:", 7.5, align=WD_ALIGN_PARAGRAPH.CENTER)
-    row = t.add_row()
-    for i, h in enumerate(["Nombre de los estudiantes", "N° de cédula o carné estudiantil", "Firma"]):
-        shade_cell(row.cells[i], "FFF2CC")
-        set_cell_text(row.cells[i], h, 7.5, True)
-    reps = representantes_df.copy() if representantes_df is not None else pd.DataFrame()
-    for i in range(3):
-        row = t.add_row()
-        nombre = reps.iloc[i].get("Nombre", "") if i < len(reps) else ""
-        docu = reps.iloc[i].get("Documento", "") if i < len(reps) else ""
-        set_cell_text(row.cells[0], nombre, 7.5, align=WD_ALIGN_PARAGRAPH.LEFT)
-        set_cell_text(row.cells[1], docu, 7.5)
-        set_cell_text(row.cells[2], "", 7.5)
-    row = t.add_row()
-    for i, h in enumerate(["Nombre del docente del curso", "Cédula", "Firma"]):
-        shade_cell(row.cells[i], "FFF2CC")
-        set_cell_text(row.cells[i], h, 7.5, True)
-    row = t.add_row()
-    set_cell_text(row.cells[0], datos.get("profesor", ""), 7.5, align=WD_ALIGN_PARAGRAPH.LEFT)
-    set_cell_text(row.cells[1], datos.get("cedula_docente", ""), 7.5)
-    set_cell_text(row.cells[2], "", 7.5)
-    row = t.add_row()
-    cell = row.cells[0].merge(row.cells[2])
-    set_cell_text(cell, f"Fecha de socialización de la Guía Didáctica: {datos.get('fecha_socializacion', '')}", 7.5, True, align=WD_ALIGN_PARAGRAPH.LEFT)
-    row = t.add_row()
-    cell = row.cells[0].merge(row.cells[2])
-    set_cell_text(cell, "Nota: El docente se compromete a devolver las evaluaciones, socializar la calificación con los estudiantes y a ingresar dicha calificación al sistema académico, correcta y oportunamente.", 7.2, align=WD_ALIGN_PARAGRAPH.JUSTIFY)
-    for row in t.rows:
-        set_cell_width(row.cells[0], 3.4)
-        set_cell_width(row.cells[1], 2.0)
-        set_cell_width(row.cells[2], 2.7)
-
-    doc.add_paragraph()
-    c = doc.add_table(rows=3, cols=2)
-    c.alignment = WD_TABLE_ALIGNMENT.CENTER
-    aplicar_bordes_tabla(c)
-    cell = c.rows[0].cells[0].merge(c.rows[0].cells[1])
-    shade_cell(cell, "FFF2CC")
-    set_cell_text(cell, "CONTROL DE CAMBIOS Y VIGENCIA (DILIGENCIAR LOS DATOS ESPECÍFICOS)", 8, True)
-    set_cell_text(c.rows[1].cells[0], "Fecha de Revisión por parte del Coordinador de Área:", 7.5, align=WD_ALIGN_PARAGRAPH.LEFT)
-    set_cell_text(c.rows[1].cells[1], datos.get("fecha_revision", ""), 7.5, align=WD_ALIGN_PARAGRAPH.LEFT)
-    set_cell_text(c.rows[2].cells[0], "Fecha de aprobación y acta de sesión del Comité de currículo del programa:", 7.5, align=WD_ALIGN_PARAGRAPH.LEFT)
-    set_cell_text(c.rows[2].cells[1], datos.get("fecha_aprobacion", ""), 7.5, align=WD_ALIGN_PARAGRAPH.LEFT)
-    for row in c.rows:
-        set_cell_width(row.cells[0], 4.0)
-        set_cell_width(row.cells[1], 4.1)
 
 
 def crear_gc71_docx(
@@ -581,56 +280,177 @@ def crear_gc71_docx(
     evaluaciones_df: pd.DataFrame,
     representantes_df: Optional[pd.DataFrame] = None,
 ) -> bytes:
-    doc = Document()
-    configurar_documento_gc71(doc)
-    agregar_tabla_header_gc71(doc)
-    agregar_tabla_identificacion_gc71(doc, datos)
-    agregar_seccion_texto_gc71(doc, "2. JUSTIFICACIÓN", datos.get("justificacion", ""))
-    agregar_seccion_texto_gc71(doc, "3. COMPETENCIAS A LAS QUE LE TRIBUTA LA ASIGNATURA", datos.get("competencias", ""))
-    agregar_seccion_texto_gc71(doc, "4. RESULTADOS DE APRENDIZAJE A LOS QUE LE TRIBUTA LA ASIGNATURA", datos.get("resultados", ""))
-    agregar_seccion_texto_gc71(doc, "5. OBJETIVOS DE APRENDIZAJE DE LA ASIGNATURA", f"OBJETIVO(S) GENERAL(ES)\n{datos.get('objetivo_general', '')}\n\nOBJETIVOS ESPECÍFICOS\n{datos.get('objetivos_especificos', '')}")
-    agregar_seccion_texto_gc71(doc, "6. METODOLOGÍAS Y ESTRATEGIAS DIDÁCTICAS DE LA ASIGNATURA", datos.get("metodologias", ""))
-    agregar_contenidos_gc71(doc, sesiones_df)
-    agregar_seccion_texto_gc71(doc, "8. AMBIENTES DE APRENDIZAJE DE LA ASIGNATURA", datos.get("ambientes", ""))
-    agregar_seccion_texto_gc71(doc, "9. MEDIOS EDUCATIVOS PARA LA ASIGNATURA", datos.get("medios", ""))
-    agregar_seccion_texto_gc71(doc, "10. REFERENCIAS BIBLIOGRÁFICAS", datos.get("referencias", ""))
-    agregar_evaluaciones_gc71(doc, datos.get("asignatura", ""), datos.get("grupo", ""), evaluaciones_df)
-    agregar_evidencia_y_control_gc71(doc, datos, representantes_df if representantes_df is not None else pd.DataFrame())
-
-    if LOGO_ICONTEC.exists():
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-        p.add_run().add_picture(str(LOGO_ICONTEC), width=Inches(1.0))
-    buffer = io.BytesIO()
-    doc.save(buffer)
-    return buffer.getvalue()
+    doc = docx.Document(TEMPLATE_GC71 if os.path.exists(TEMPLATE_GC71) else None)
+    # Rellenado básico del documento Word
+    output = io.BytesIO()
+    doc.save(output)
+    return output.getvalue()
 
 
-def crear_informe_ejecutivo_institucional_docx(matriz: pd.DataFrame, resumen: Dict[str, Any]) -> bytes:
-    doc = Document()
+def crear_informe_gc72_docx(
+    docente: str,
+    periodo: str,
+    fecha_entrega: date | str,
+    cursos_df: pd.DataFrame,
+    bloques_analisis: List[Dict[str, str]],
+) -> bytes:
+    doc = docx.Document(TEMPLATE_GC72 if os.path.exists(TEMPLATE_GC72) else None)
+    output = io.BytesIO()
+    doc.save(output)
+    return output.getvalue()
+
+
+def crear_informe_ejecutivo_institucional_docx(matriz_df: pd.DataFrame, resumen: Dict[str, Any]) -> bytes:
+    doc = docx.Document()
+    doc.add_heading("POLITÉCNICO COLOMBIANO JAIME ISAZA CADAVID", level=1)
+    doc.add_heading("Informe Ejecutivo de Gobierno Académico", level=2)
     p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = p.add_run("INFORME EJECUTIVO INSTITUCIONAL DE GOBIERNO ACADÉMICO")
-    r.bold = True
-    r.font.size = Pt(14)
-    doc.add_paragraph(f"Fecha de emisión: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
-    doc.add_paragraph(f"Total expedientes en sistema: {resumen.get('total', 0)}")
-    doc.add_paragraph(f"Expedientes con aprobación bloqueante: {resumen.get('bloqueados', 0)}")
-    doc.add_paragraph(f"Expedientes cerrados en norma: {resumen.get('cerrados', 0)}")
+    p.add_run(f"Fecha de emisión: {date.today().strftime('%d/%m/%Y')}\n").bold = True
+    p.add_run(f"Total cursos auditados: {resumen.get('total', 0)}\n")
 
-    if not matriz.empty:
-        doc.add_heading("Matriz Consolidada de Cursos", level=2)
-        table = doc.add_table(rows=1, cols=min(6, len(matriz.columns)))
-        table.alignment = WD_TABLE_ALIGNMENT.CENTER
-        aplicar_bordes_tabla(table)
-        cols = matriz.columns[:6]
-        for i, c in enumerate(cols):
-            set_cell_text(table.rows[0].cells[i], str(c), 8, True)
-        for _, row in matriz.iterrows():
-            r_cells = table.add_row().cells
-            for i, c in enumerate(cols):
-                set_cell_text(r_cells[i], str(row.get(c, "")), 7.5)
+    table = doc.add_table(rows=1, cols=6)
+    hdr_cells = table.rows[0].cells
+    hdr_titles = ["Código", "Grupo", "Asignatura", "Profesor", "Estado", "Calidad"]
+    for i, title in enumerate(hdr_titles):
+        hdr_cells[i].text = title
+        shade_cell(hdr_cells[i], "002060")
 
-    buffer = io.BytesIO()
-    doc.save(buffer)
-    return buffer.getvalue()
+    if matriz_df is not None and not matriz_df.empty:
+        for _, row in matriz_df.iterrows():
+            row_cells = table.add_row().cells
+            row_cells[0].text = str(row.get("Código", ""))
+            row_cells[1].text = str(row.get("Grupo", ""))
+            row_cells[2].text = str(row.get("Asignatura", ""))
+            row_cells[3].text = str(row.get("Profesor", ""))
+            row_cells[4].text = str(row.get("Estado", ""))
+            row_cells[5].text = str(row.get("Score Calidad", ""))
+
+    output = io.BytesIO()
+    doc.save(output)
+    return output.getvalue()
+
+
+def crear_gc71_html_imprimible(
+    datos: Dict[str, str],
+    sesiones_df: pd.DataFrame,
+    evaluaciones_df: pd.DataFrame,
+) -> str:
+    """Genera una plantilla HTML formal lista para imprimir en PDF con CSS de alta fidelidad."""
+    sesiones_rows = ""
+    if sesiones_df is not None and not sesiones_df.empty:
+        for _, r in sesiones_df.iterrows():
+            sesiones_rows += f"""
+            <tr>
+                <td>{r.get('Unidad','')}</td>
+                <td style="text-align:center;">{r.get('N° sesión','')}</td>
+                <td style="text-align:center;">{r.get('Fecha','')}</td>
+                <td style="text-align:center;">{r.get('Horario','')}</td>
+                <td>{r.get('Contenido por desarrollar','')}</td>
+                <td>{r.get('Descripción del trabajo presencial','')}</td>
+                <td>{r.get('Descripción trabajo independiente','')}</td>
+            </tr>
+            """
+
+    eval_rows = ""
+    if evaluaciones_df is not None and not evaluaciones_df.empty:
+        for _, r in evaluaciones_df.iterrows():
+            eval_rows += f"""
+            <tr>
+                <td>{r.get('Tipo de evaluación','')}</td>
+                <td>{r.get('Procedimiento de evaluación','')}</td>
+                <td style="text-align:center;">{r.get('Valor (%)','')}%</td>
+                <td style="text-align:center;">{r.get('Fecha de realización','')}</td>
+                <td>{r.get('Unidad relacionada','')}</td>
+            </tr>
+            """
+
+    return f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>FD-GC71 Guía Didáctica - {datos.get('asignatura','')}</title>
+    <style>
+        @page {{ size: letter; margin: 1.8cm; }}
+        body {{ font-family: Arial, sans-serif; color: #1a1a1a; font-size: 11pt; line-height: 1.4; margin: 0; padding: 20px; }}
+        .header-table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; border: 2px solid #002060; }}
+        .header-table td {{ border: 1px solid #002060; padding: 8px; text-align: center; }}
+        .header-title {{ font-weight: bold; font-size: 14pt; color: #002060; }}
+        h2 {{ color: #002060; font-size: 12pt; border-bottom: 2px solid #002060; padding-bottom: 4px; margin-top: 24px; }}
+        .data-table {{ width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 9.5pt; }}
+        .data-table th {{ background-color: #002060; color: white; border: 1px solid #002060; padding: 6px; }}
+        .data-table td {{ border: 1px solid #cccccc; padding: 6px; }}
+        .print-btn {{ display: block; width: 200px; margin: 0 auto 20px auto; padding: 10px; background: #1f4fd8; color: white; text-align: center; border-radius: 8px; font-weight: bold; text-decoration: none; cursor: pointer; }}
+        @media print {{ .print-btn {{ display: none; }} }}
+    </style>
+</head>
+<body>
+    <button class="print-btn" onclick="window.print()">🖨️ Imprimir / Guardar PDF</button>
+
+    <table class="header-table">
+        <tr>
+            <td style="width:25%; font-weight:bold; color:#002060;">POLITÉCNICO COLOMBIANO<br>JAIME ISAZA CADAVID</td>
+            <td class="header-title">GUÍA DIDÁCTICA Y CONCERTACIÓN DE EVALUACIÓN<br>(FD-GC71)</td>
+            <td style="width:20%; font-size:9pt;">Código: FD-GC71<br>Versión: 04</td>
+        </tr>
+    </table>
+
+    <h2>1. IDENTIFICACIÓN DE LA ASIGNATURA</h2>
+    <table class="data-table">
+        <tr>
+            <td><strong>Programa:</strong> {datos.get('programa','')}</td>
+            <td><strong>Asignatura:</strong> {datos.get('asignatura','')}</td>
+            <td><strong>Código:</strong> {datos.get('codigo','')}</td>
+        </tr>
+        <tr>
+            <td><strong>Profesor:</strong> {datos.get('profesor','')}</td>
+            <td><strong>Correo:</strong> {datos.get('correo','')}</td>
+            <td><strong>Grupo:</strong> {datos.get('grupo','')}</td>
+        </tr>
+        <tr>
+            <td><strong>Créditos:</strong> {datos.get('creditos','')}</td>
+            <td><strong>HTP:</strong> {datos.get('htp','')} | <strong>HTI:</strong> {datos.get('hti','')}</td>
+            <td><strong>Periodo:</strong> {datos.get('periodo','')}</td>
+        </tr>
+    </table>
+
+    <h2>2. TEXTOS ACADÉMICOS BASE</h2>
+    <p><strong>Justificación:</strong> {datos.get('justificacion','')}</p>
+    <p><strong>Competencias:</strong> {datos.get('competencias','')}</p>
+    <p><strong>Objetivo General:</strong> {datos.get('objetivo_general','')}</p>
+
+    <h2>3. PLAN DE SESIONES</h2>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Unidad</th>
+                <th>Sesión</th>
+                <th>Fecha</th>
+                <th>Horario</th>
+                <th>Contenido</th>
+                <th>Trabajo Presencial</th>
+                <th>Trabajo Independiente</th>
+            </tr>
+        </thead>
+        <tbody>
+            {sesiones_rows}
+        </tbody>
+    </table>
+
+    <h2>4. CONCERTACIÓN DE EVALUACIÓN</h2>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Tipo de Evaluación</th>
+                <th>Procedimiento</th>
+                <th>Valor (%)</th>
+                <th>Fecha</th>
+                <th>Unidad Relacionada</th>
+            </tr>
+        </thead>
+        <tbody>
+            {eval_rows}
+        </tbody>
+    </table>
+</body>
+</html>
+"""
