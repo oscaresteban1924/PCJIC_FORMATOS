@@ -274,6 +274,17 @@ def construir_analisis(cursos: pd.DataFrame, analisis_por_curso: Dict[str, Dict[
     return bloques
 
 
+def add_custom_heading(doc: Any, text: str, level: int = 1):
+    p = doc.add_paragraph()
+    p.paragraph_format.space_before = Pt(12 if level == 1 else 8)
+    p.paragraph_format.space_after = Pt(4)
+    run = p.add_run(text)
+    run.bold = True
+    run.font.size = Pt(13 if level == 1 else 11)
+    run.font.color.rgb = RGBColor(0, 32, 96)
+    return p
+
+
 def crear_gc71_docx(
     datos: Dict[str, str],
     sesiones_df: pd.DataFrame,
@@ -281,25 +292,128 @@ def crear_gc71_docx(
     representantes_df: Optional[pd.DataFrame] = None,
 ) -> bytes:
     doc = docx.Document(TEMPLATE_GC71 if os.path.exists(TEMPLATE_GC71) else None)
-    
+
+    # Título principal
+    add_custom_heading(doc, "GUÍA DIDÁCTICA Y CONCERTACIÓN DE EVALUACIÓN (FD-GC71)", level=1)
+
+    # 1. IDENTIFICACIÓN DE LA ASIGNATURA
+    add_custom_heading(doc, "1. IDENTIFICACIÓN DE LA ASIGNATURA", level=2)
+
+    t_ident = doc.add_table(rows=3, cols=3)
+    aplicar_bordes_tabla(t_ident, "002060")
+
+    set_label_value(t_ident.rows[0].cells[0], "Programa", datos.get("programa", ""))
+    set_label_value(t_ident.rows[0].cells[1], "Asignatura", datos.get("asignatura", ""))
+    set_label_value(t_ident.rows[0].cells[2], "Código", datos.get("codigo", ""))
+
+    set_label_value(t_ident.rows[1].cells[0], "Profesor", datos.get("profesor", ""))
+    set_label_value(t_ident.rows[1].cells[1], "Correo", datos.get("correo", ""))
+    set_label_value(t_ident.rows[1].cells[2], "Grupo", datos.get("grupo", ""))
+
+    set_label_value(t_ident.rows[2].cells[0], "Créditos", datos.get("creditos", ""))
+    set_label_value(t_ident.rows[2].cells[1], "HTP / HTI", f"{datos.get('htp', '')} / {datos.get('hti', '')}")
+    set_label_value(t_ident.rows[2].cells[2], "Periodo", datos.get("periodo", ""))
+
+    # 2. TEXTOS ACADÉMICOS BASE
+    add_custom_heading(doc, "2. TEXTOS ACADÉMICOS BASE", level=2)
+
+    campos_textos = [
+        ("Justificación", "justificacion"),
+        ("Competencias", "competencias"),
+        ("Objetivo General", "objetivo_general"),
+        ("Metodologías", "metodologias"),
+        ("Ambientes de aprendizaje", "ambientes"),
+        ("Medios y recursos", "medios"),
+        ("Referencias bibliográficas", "referencias"),
+    ]
+    for label, key in campos_textos:
+        val = str(datos.get(key, "")).strip()
+        if val:
+            p = doc.add_paragraph()
+            r_l = p.add_run(f"{label}: ")
+            r_l.bold = True
+            r_l.font.color.rgb = RGBColor(0, 32, 96)
+            r_v = p.add_run(val)
+            r_v.font.size = Pt(10)
+
+    # 3. PLAN DE SESIONES
+    add_custom_heading(doc, "3. PLAN DE SESIONES", level=2)
+
+    if sesiones_df is not None and not sesiones_df.empty:
+        t_ses = doc.add_table(rows=1, cols=7)
+        aplicar_bordes_tabla(t_ses, "002060")
+        headers = ["Unidad", "Sesión", "Fecha", "Horario", "Contenido", "Trabajo Presencial", "Trabajo Independiente"]
+        for idx, text in enumerate(headers):
+            cell = t_ses.rows[0].cells[idx]
+            shade_cell(cell, "002060")
+            set_cell_text(cell, text, bold=True, color_rgb=(255, 255, 255), font_size_pt=9)
+
+        for _, r in sesiones_df.iterrows():
+            row_cells = t_ses.add_row().cells
+            set_cell_text(row_cells[0], str(r.get("Unidad", "")), font_size_pt=8.5)
+            set_cell_text(row_cells[1], str(r.get("N° sesión", "")), font_size_pt=8.5, align=WD_ALIGN_PARAGRAPH.CENTER)
+            set_cell_text(row_cells[2], str(r.get("Fecha", "")), font_size_pt=8.5, align=WD_ALIGN_PARAGRAPH.CENTER)
+            set_cell_text(row_cells[3], str(r.get("Horario", "")), font_size_pt=8.5, align=WD_ALIGN_PARAGRAPH.CENTER)
+            set_cell_text(row_cells[4], str(r.get("Contenido por desarrollar", "")), font_size_pt=8.5)
+            set_cell_text(row_cells[5], str(r.get("Descripción del trabajo presencial", "")), font_size_pt=8.5)
+            set_cell_text(row_cells[6], str(r.get("Descripción trabajo independiente", "")), font_size_pt=8.5)
+
+    # 4. CONCERTACIÓN DE EVALUACIÓN
+    add_custom_heading(doc, "4. CONCERTACIÓN DE EVALUACIÓN", level=2)
+
+    if evaluaciones_df is not None and not evaluaciones_df.empty:
+        t_eval = doc.add_table(rows=1, cols=5)
+        aplicar_bordes_tabla(t_eval, "002060")
+        eval_headers = ["Tipo de Evaluación", "Procedimiento", "Valor (%)", "Fecha", "Unidad Relacionada"]
+        for idx, text in enumerate(eval_headers):
+            cell = t_eval.rows[0].cells[idx]
+            shade_cell(cell, "002060")
+            set_cell_text(cell, text, bold=True, color_rgb=(255, 255, 255), font_size_pt=9)
+
+        for _, r in evaluaciones_df.iterrows():
+            row_cells = t_eval.add_row().cells
+            set_cell_text(row_cells[0], str(r.get("Tipo de evaluación", "")), font_size_pt=8.5)
+            set_cell_text(row_cells[1], str(r.get("Procedimiento de evaluación", "")), font_size_pt=8.5)
+            set_cell_text(row_cells[2], f"{r.get('Valor (%)', '')}%", font_size_pt=8.5, align=WD_ALIGN_PARAGRAPH.CENTER)
+            set_cell_text(row_cells[3], str(r.get("Fecha de realización", "")), font_size_pt=8.5, align=WD_ALIGN_PARAGRAPH.CENTER)
+            set_cell_text(row_cells[4], str(r.get("Unidad relacionada", "")), font_size_pt=8.5)
+
+    # 5. REPRESENTANTES ESTUDIANTILES
+    if representantes_df is not None and not representantes_df.empty:
+        add_custom_heading(doc, "5. REPRESENTANTES DE ESTUDIANTES", level=2)
+
+        t_rep = doc.add_table(rows=1, cols=3)
+        aplicar_bordes_tabla(t_rep, "002060")
+        rep_headers = ["Nombre del Estudiante", "Cédula / Documento", "Correo Institucional"]
+        for idx, text in enumerate(rep_headers):
+            cell = t_rep.rows[0].cells[idx]
+            shade_cell(cell, "002060")
+            set_cell_text(cell, text, bold=True, color_rgb=(255, 255, 255), font_size_pt=9)
+
+        for _, r in representantes_df.iterrows():
+            row_cells = t_rep.add_row().cells
+            set_cell_text(row_cells[0], str(r.get("Nombre", "")), font_size_pt=8.5)
+            set_cell_text(row_cells[1], str(r.get("Cedula", "")), font_size_pt=8.5)
+            set_cell_text(row_cells[2], str(r.get("Correo", "")), font_size_pt=8.5)
+
     # Agregar Sello Digital Institucional y bloque de firma al final del documento
     p_head = doc.add_paragraph()
     r_head = p_head.add_run("SELLO DE FIRMA E INTEGRIDAD DIGITAL INSTITUCIONAL")
     r_head.bold = True
     r_head.font.size = Pt(12)
     r_head.font.color.rgb = RGBColor(0, 32, 96)
-    
+
     t = doc.add_table(rows=2, cols=2)
     aplicar_bordes_tabla(t, "002060")
-    
+
     c00 = t.rows[0].cells[0]
     set_cell_text(c00, "FIRMA DEL DOCENTE Y APROBACIÓN", bold=True, color_rgb=(0, 32, 96))
     c01 = t.rows[0].cells[1]
     set_cell_text(c01, "VERIFICACIÓN DIGITAL INSTITUCIONAL", bold=True, color_rgb=(0, 32, 96))
-    
+
     c10 = t.rows[1].cells[0]
     set_section_text(c10, f"Docente: {datos.get('profesor','')}\nCédula: {datos.get('cedula_docente','')}\nFecha de concertación: {datos.get('fecha_socializacion','')}")
-    
+
     c11 = t.rows[1].cells[1]
     import hashlib, json
     raw_hash = hashlib.sha256(json.dumps(datos, sort_keys=True, default=str).encode('utf-8')).hexdigest()
