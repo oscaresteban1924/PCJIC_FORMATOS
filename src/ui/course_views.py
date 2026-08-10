@@ -185,9 +185,14 @@ def ui_gc71(st: Any):
             st.session_state["input_referencias"] = d.get("referencias") or d.get("bibliografia") or TEXTOS_PREDEFINIDOS_GC71["referencias"]
 
             if payload.get("modulos"):
-                st.session_state["modulos_gc71"] = payload_to_df(payload["modulos"], COLUMNAS_MODULOS)
+                st.session_state["loaded_modulos_df"] = payload_to_df(payload["modulos"], COLUMNAS_MODULOS)
+            else:
+                st.session_state["loaded_modulos_df"] = None
+
             if payload.get("evaluaciones"):
-                st.session_state["evaluaciones_gc71"] = payload_to_df(payload["evaluaciones"], COLUMNAS_EVALUACIONES)
+                st.session_state["loaded_evaluaciones_df"] = payload_to_df(payload["evaluaciones"], COLUMNAS_EVALUACIONES)
+            else:
+                st.session_state["loaded_evaluaciones_df"] = None
 
         st.rerun()
 
@@ -264,7 +269,12 @@ def ui_gc71(st: Any):
         {"Unidad": "UNIDAD 2. Aplicación", "Contenido / tema central": "Desarrollo de procedimientos, ejercicios y análisis de casos", "Horas presenciales": 8, "Sesiones": 4, "Trabajo presencial": "Taller aplicado, solución de ejercicios y discusión guiada.", "Trabajo independiente": "Desarrollo de actividad práctica y revisión bibliográfica."},
         {"Unidad": "UNIDAD 3. Integración", "Contenido / tema central": "Proyecto, socialización y retroalimentación", "Horas presenciales": 4, "Sesiones": 2, "Trabajo presencial": "Acompañamiento al proyecto y socialización de resultados.", "Trabajo independiente": "Ajuste de entregables y preparación de sustentación."},
     ])
-    modulos_df = st.data_editor(default_modulos, num_rows="dynamic", hide_index=True, use_container_width=True, key="modulos_gc71")
+
+    modulos_initial = st.session_state.get("loaded_modulos_df")
+    if modulos_initial is None or (isinstance(modulos_initial, pd.DataFrame) and modulos_initial.empty):
+        modulos_initial = default_modulos
+
+    modulos_df = st.data_editor(modulos_initial, num_rows="dynamic", hide_index=True, use_container_width=True, key="modulos_editor_gc71")
 
     st.subheader("4. Horario de clase")
     c1, c2, c3 = st.columns(3)
@@ -296,7 +306,7 @@ def ui_gc71(st: Any):
 
     st.subheader("5. Plan de sesiones (generado automáticamente)")
     st.write(f"Sesiones calculadas: **{len(sesiones_df)}** | Fechas válidas de clase: **{len(fechas_clase_df)}**")
-    sesiones_df = st.data_editor(sesiones_df, num_rows="dynamic", hide_index=True, use_container_width=True, key="sesiones_gc71")
+    sesiones_df = st.data_editor(sesiones_df, num_rows="dynamic", hide_index=True, use_container_width=True, key="sesiones_editor_gc71")
 
     st.subheader("6. Concertación de evaluación")
     default_eval = pd.DataFrame([
@@ -305,7 +315,12 @@ def ui_gc71(st: Any):
         {"Tipo de evaluación": "Segundo parcial", "Procedimiento de evaluación": "Evaluación teórica y práctica", "Valor (%)": 25, "Fecha de realización": "01/11/2026", "Unidad relacionada": "UNIDAD 2", "Corte": "Segundo corte"},
         {"Tipo de evaluación": "Proyecto final", "Procedimiento de evaluación": "Entrega final y sustentación", "Valor (%)": 25, "Fecha de realización": "20/11/2026", "Unidad relacionada": "UNIDAD 3", "Corte": "Tercer corte"},
     ])
-    evaluaciones_df = st.data_editor(default_eval, num_rows="dynamic", hide_index=True, use_container_width=True, key="evaluaciones_gc71")
+
+    eval_initial = st.session_state.get("loaded_evaluaciones_df")
+    if eval_initial is None or (isinstance(eval_initial, pd.DataFrame) and eval_initial.empty):
+        eval_initial = default_eval
+
+    evaluaciones_df = st.data_editor(eval_initial, num_rows="dynamic", hide_index=True, use_container_width=True, key="evaluaciones_editor_gc71")
 
     datos = {
         "programa": programa,
